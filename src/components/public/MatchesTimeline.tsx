@@ -52,7 +52,7 @@ export default function MatchesTimeline({ partidos }: MatchesTimelineProps) {
     <div className="space-y-6 pt-4 border-t border-gray-200">
       <div className="flex items-center gap-2">
         <Trophy className="w-5 h-5 text-[#F40009]" />
-        <h3 className="font-black text-base uppercase text-gray-900 tracking-tight">La Quiniela de la Hinchada (Sábado)</h3>
+        <h3 className="font-black text-base uppercase text-gray-900 tracking-tight">La Quiniela de la Hinchada</h3>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
