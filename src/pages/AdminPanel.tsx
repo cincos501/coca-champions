@@ -130,7 +130,7 @@ export default function AdminPanel() {
       .toUpperCase(); // Forzamos mayúsculas para look deportivo uniforme
   };
 
-  // 🚀 GENERADOR DE PDF SANITIZADO (CERO ERRORES EN ENTORNO MÓVIL / EDGE)
+ // 🚀 GENERADOR DE PDF SANITIZADO (ACTUALIZADO: MULTI-PÁGINA SÁBADO Y DOMINGO)
   const handleDescargarReportePDF = () => {
     const doc = new jsPDF({
       orientation: 'landscape',
@@ -138,106 +138,119 @@ export default function AdminPanel() {
       format: 'a4'
     });
 
-    // Configuración inicial de fuente segura y limpia
-    doc.setFont("helvetica", "bold");
-    
-    // Header Principal Estetico
-    doc.setFontSize(22);
-    doc.setTextColor(244, 0, 9); // Rojo Coca-Cola Oficial
-    doc.text("COCA-COLA CHAMPIONS - VI EDICION", 14, 16);
-    
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(80, 80, 80); // Gris Oscuro Elegante
-    doc.text("CALENDARIO OFICIAL DE COMPETENCIA Y DISTRIBUCION DE EQUIPOS (SABADO)", 14, 22);
+    // Definimos el ciclo para que procese ambas jornadas de forma secuencial
+    const jornadas: DiaJuego[] = ['Sábado', 'Domingo'];
 
-    // Separador visual gris sutil
-    doc.setDrawColor(220, 220, 220);
-    doc.line(14, 25, 283, 25);
+    jornadas.forEach((dia, index) => {
+      // 🔄 Si ya procesó el Sábado (index 0), salta a una página nueva limpia para el Domingo
+      if (index > 0) {
+        doc.addPage();
+      }
 
-    // --- TABLA 1: DISTRIBUCIÓN DE GRUPOS ---
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.text("CONFORMACION DE GRUPOS (SABADO)", 14, 33);
+      // Configuración inicial de fuente segura y limpia
+      doc.setFont("helvetica", "bold");
+      
+      // Encabezado Estético Principal de la Página
+      doc.setFontSize(22);
+      doc.setTextColor(244, 0, 9); // Rojo Coca-Cola Oficial
+      doc.text("COCA-COLA CHAMPIONS - VI EDICION", 14, 16);
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(80, 80, 80); // Gris Oscuro Elegante
+      // ⚡ El título ahora se adapta automáticamente al día actual de la página
+      doc.text(`CALENDARIO OFICIAL DE COMPETENCIA Y DISTRIBUCION DE EQUIPOS (${sanitizarTextoParaPDF(dia)})`, 14, 22);
 
-    const equiposGrupoA = equipos.filter(e => e.dia_juego === 'Sábado' && e.grupo === 'A');
-    const equiposGrupoB = equipos.filter(e => e.dia_juego === 'Sábado' && e.grupo === 'B');
-    
-    const maxFilasGrupos = Math.max(equiposGrupoA.length, equiposGrupoB.length, 1);
-    const filasGrupos = [];
+      // Separador visual gris sutil
+      doc.setDrawColor(220, 220, 220);
+      doc.line(14, 25, 283, 25);
 
-    for (let i = 0; i < maxFilasGrupos; i++) {
-      const eqA = equiposGrupoA[i];
-      const eqB = equiposGrupoB[i];
+      // --- TABLA 1: CONFORMACIÓN DE GRUPOS DEL DÍA ---
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(0, 0, 0);
+      doc.text(`CONFORMACION DE GRUPOS (${sanitizarTextoParaPDF(dia)})`, 14, 33);
 
-      const miembrosA = eqA ? jugadores.filter(j => j.id_equipo === eqA.id).map(j => j.nombre).join(', ') : '';
-      const miembrosB = eqB ? jugadores.filter(j => j.id_equipo === eqB.id).map(j => j.nombre).join(', ') : '';
+      // ⚡ Filtramos los equipos dinámicamente según el día de la página actual
+      const equiposGrupoA = equipos.filter(e => e.dia_juego === dia && e.grupo === 'A');
+      const equiposGrupoB = equipos.filter(e => e.dia_juego === dia && e.grupo === 'B');
+      
+      const maxFilasGrupos = Math.max(equiposGrupoA.length, equiposGrupoB.length, 1);
+      const filasGrupos = [];
 
-      filasGrupos.push([
-        eqA ? sanitizarTextoParaPDF(eqA.nombre) : '-',
-        miembrosA ? sanitizarTextoParaPDF(miembrosA) : (eqA ? 'SIN JUGADORES' : '-'),
-        eqB ? sanitizarTextoParaPDF(eqB.nombre) : '-',
-        miembrosB ? sanitizarTextoParaPDF(miembrosB) : (eqB ? 'SIN JUGADORES' : '-')
-      ]);
-    }
+      for (let i = 0; i < maxFilasGrupos; i++) {
+        const eqA = equiposGrupoA[i];
+        const eqB = equiposGrupoB[i];
 
-    autoTable(doc, {
-      startY: 37,
-      head: [['EQUIPO (GRUPO A)', 'INTEGRANTES DE PLANTILLA', 'EQUIPO (GRUPO B)', 'INTEGRANTES DE PLANTILLA']],
-      body: filasGrupos,
-      headStyles: { fillColor: [244, 0, 9], fontSize: 9, fontStyle: 'bold', halign: 'center' },
-      styles: { fontSize: 8.5, font: 'helvetica', cellPadding: 3.5 },
-      columnStyles: {
-        0: { fontStyle: 'bold', cellWidth: 45 }, // 👈 CORREGIDO: width -> cellWidth
-        1: { textColor: [60, 60, 60] },
-        2: { fontStyle: 'bold', cellWidth: 45 }, // 👈 CORREGIDO: width -> cellWidth
-        3: { textColor: [60, 60, 60] }
-      },
-      theme: 'grid'
-    });
+        const miembrosA = eqA ? jugadores.filter(j => j.id_equipo === eqA.id).map(j => j.nombre).join(', ') : '';
+        const miembrosB = eqB ? jugadores.filter(j => j.id_equipo === eqB.id).map(j => j.nombre).join(', ') : '';
 
-    // --- TABLA 2: FIXTURE Y CRUCES DE LAS 3 VUELTAS ---
-    const ySiguiente = (doc as any).lastAutoTable.finalY + 12;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.text("FIXTURE Y CRONOGRAMA DE ENCUENTROS", 14, ySiguiente);
-
-    const filasPartidos: any[] = [];
-    const vueltas = ['1RA VUELTA', '2DA VUELTA', '3RA VUELTA'] as const;
-
-    vueltas.forEach((vuel) => {
-      const partidosDeVuelta = partidos.filter(p => p.dia_juego === 'Sábado' && p.vuelta === vuel);
-      partidosDeVuelta.forEach((p, idx) => {
-        filasPartidos.push([
-          vuel,
-          `GRUPO ${p.grupo}`,
-          sanitizarTextoParaPDF(p.nombre_local),
-          p.estado === 'jugado' ? `${p.goles_local} : ${p.goles_visitante}` : '   :   ', // Espacio limpio para lapicero
-          sanitizarTextoParaPDF(p.nombre_visitante),
-          `PARTIDO ${idx + 1}`
+        filasGrupos.push([
+          eqA ? sanitizarTextoParaPDF(eqA.nombre) : '-',
+          miembrosA ? sanitizarTextoParaPDF(miembrosA) : (eqA ? 'SIN JUGADORES' : '-'),
+          eqB ? sanitizarTextoParaPDF(eqB.nombre) : '-',
+          miembrosB ? sanitizarTextoParaPDF(miembrosB) : (eqB ? 'SIN JUGADORES' : '-')
         ]);
+      }
+
+      autoTable(doc, {
+        startY: 37,
+        head: [['EQUIPO (GRUPO A)', 'INTEGRANTES DE PLANTILLA', 'EQUIPO (GRUPO B)', 'INTEGRANTES DE PLANTILLA']],
+        body: filasGrupos,
+        headStyles: { fillColor: [244, 0, 9], fontSize: 9, fontStyle: 'bold', halign: 'center' },
+        styles: { fontSize: 8.5, font: 'helvetica', cellPadding: 3.5 },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 45 },
+          1: { textColor: [60, 60, 60] },
+          2: { fontStyle: 'bold', cellWidth: 45 },
+          3: { textColor: [60, 60, 60] }
+        },
+        theme: 'grid'
+      });
+
+      // --- TABLA 2: FIXTURE Y CRUCES DE LAS 3 VUELTAS DEL DÍA ---
+      const ySiguiente = (doc as any).lastAutoTable.finalY + 12;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(0, 0, 0);
+      doc.text(`FIXTURE Y CRONOGRAMA DE ENCUENTROS (${sanitizarTextoParaPDF(dia)})`, 14, ySiguiente);
+
+      const filasPartidos: any[] = [];
+      const vueltas = ['1RA VUELTA', '2DA VUELTA', '3RA VUELTA'] as const;
+
+      vueltas.forEach((vuel) => {
+        // ⚡ Filtramos los partidos dinámicamente evaluando el día de la página actual
+        const partidosDeVuelta = partidos.filter(p => p.dia_juego === dia && p.vuelta === vuel);
+        partidosDeVuelta.forEach((p, idx) => {
+          filasPartidos.push([
+            vuel,
+            `GRUPO ${p.grupo}`,
+            sanitizarTextoParaPDF(p.nombre_local),
+            p.estado === 'jugado' ? `${p.goles_local} : ${p.goles_visitante}` : '   :   ', // Vacío si falta jugar
+            sanitizarTextoParaPDF(p.nombre_visitante),
+            `PARTIDO ${idx + 1}`
+          ]);
+        });
+      });
+
+      autoTable(doc, {
+        startY: ySiguiente + 4,
+        head: [['JORNADA / FASE', 'GRUPO', 'EQUIPO LOCAL', 'MARCADOR', 'EQUIPO VISITANTE', 'ORDEN']],
+        body: filasPartidos.length > 0 ? filasPartidos : [['-', '-', `NO HAY ENCUENTROS AGENDADOS PARA EL ${sanitizarTextoParaPDF(dia)}`, '-', '-', '-']],
+        headStyles: { fillColor: [20, 20, 20], fontSize: 9, fontStyle: 'bold', halign: 'center' },
+        styles: { fontSize: 8.5, font: 'helvetica', halign: 'center', cellPadding: 3.5 },
+        columnStyles: {
+          0: { fontStyle: 'bold', fillColor: [250, 250, 250] },
+          1: { fontStyle: 'bold' },
+          2: { halign: 'right', fontStyle: 'bold', cellWidth: 60 },
+          3: { fontStyle: 'bold', fillColor: [240, 240, 240], fontSize: 10 }, 
+          4: { halign: 'left', fontStyle: 'bold', cellWidth: 60 }   
+        },
+        theme: 'grid'
       });
     });
 
-    autoTable(doc, {
-      startY: ySiguiente + 4,
-      head: [['JORNADA / FASE', 'GRUPO', 'EQUIPO LOCAL', 'MARCADOR', 'EQUIPO VISITANTE', 'ORDEN']],
-      body: filasPartidos.length > 0 ? filasPartidos : [['-', '-', 'NO HAY PARTIDOS AGENDADOS AUN', '-', '-', '-']],
-      headStyles: { fillColor: [20, 20, 20], fontSize: 9, fontStyle: 'bold', halign: 'center' },
-      styles: { fontSize: 8.5, font: 'helvetica', halign: 'center', cellPadding: 3.5 },
-      columnStyles: {
-        0: { fontStyle: 'bold', fillColor: [250, 250, 250] },
-        1: { fontStyle: 'bold' },
-        2: { halign: 'right', fontStyle: 'bold', cellWidth: 60 }, // 👈 CORREGIDO: width -> cellWidth
-        3: { fontStyle: 'bold', fillColor: [240, 240, 240], fontSize: 10 }, 
-        4: { halign: 'left', fontStyle: 'bold', cellWidth: 60 }   // 👈 CORREGIDO: width -> cellWidth
-      },
-      theme: 'grid'
-    });
-
-    // Descarga instantánea
+    // Descarga instantánea y automática del documento unificado
     doc.save("Fixture_Oficial_Coca_Champions.pdf");
   };
 
