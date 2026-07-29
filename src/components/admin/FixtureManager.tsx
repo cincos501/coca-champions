@@ -158,7 +158,7 @@ export default function FixtureManager({ equipos, mostrarFeedback }: FixtureMana
                     
                     <select 
                       value={eq.grupo || 'NUEVO'} 
-                      onChange={(e) => handleAsignarGrupo(eq.id!, e.target.value as any)}
+                      onChange={(e) => handleAsignarGrupo(eq.id!, e.target.value as Grupo)}
                       className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg border appearance-none cursor-pointer text-center outline-none transition-colors ${
                         eq.grupo === 'A' ? 'bg-red-50 text-[#F40009] border-red-200' :
                         eq.grupo === 'B' ? 'bg-neutral-900 text-white border-neutral-900' :
@@ -192,7 +192,7 @@ export default function FixtureManager({ equipos, mostrarFeedback }: FixtureMana
                 </div>
                 <div>
                   <label className="text-[10px] font-black uppercase text-gray-400 block px-0.5 mb-1">Fase / Vuelta</label>
-                  <select value={vueltaSeleccionada} onChange={(e) => setVueltaSeleccionada(e.target.value as any)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#F40009]">
+                  <select value={vueltaSeleccionada} onChange={(e) => setVueltaSeleccionada(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#F40009]">
                     <option value="1RA VUELTA">1ra Vuelta</option>
                     <option value="2DA VUELTA">2da Vuelta</option>
                     <option value="3RA VUELTA">3ra Vuelta</option>

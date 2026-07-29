@@ -1,5 +1,5 @@
 // src/components/public/PublicTeamCard.tsx
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Clock, Megaphone } from 'lucide-react';
 import { FutbolService } from '../../services/futbol.service';
 import type { Equipo, Jugador } from '../../types/futbol.types';
@@ -13,22 +13,19 @@ interface PublicTeamCardProps {
 export default function PublicTeamCard({ equipo, integrantes}: PublicTeamCardProps) {
   const estaCompleto = integrantes.length >= 6;
   const [cargandoVoto, setCargandoVoto] = useState(false);
-  const [yaAlento, setYaAlento] = useState(false);
-
-  // Verificar en LocalStorage si este celular ya apoyó a este equipo en los últimos minutos
-  useEffect(() => {
+  const [yaAlento, setYaAlento] = useState(() => {
     const registro = localStorage.getItem(`alento_${equipo.id}`);
     if (registro) {
       const tiempoGuardado = parseInt(registro, 10);
       const ahora = Date.now();
-      // El bloqueo dura 1 minuto completo para enfriar los clics masivos
       if (ahora - tiempoGuardado < 60000) {
-        setYaAlento(true);
+        return true;
       } else {
         localStorage.removeItem(`alento_${equipo.id}`);
       }
     }
-  }, [equipo.id]);
+    return false;
+  });
 
   const handleAlentar = async () => {
     if (yaAlento || cargandoVoto) return;

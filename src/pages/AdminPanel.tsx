@@ -1,334 +1,1247 @@
 // src/pages/AdminPanel.tsx
-import { useState, useEffect } from 'react';
-import { FutbolService } from '../services/futbol.service';
-import type { Equipo, DiaJuego, Jugador, Partido } from '../types/futbol.types';
-import { Users, Calendar, Download } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { FutbolService, EdicionesService } from '../services/futbol.service';
+import type { Equipo, DiaJuego, Jugador, Partido, DiaDisponibilidad, Grupo, EdicionConfig } from '../types/futbol.types';
+import { 
+  Users, Calendar, Download, UserPlus, Shuffle, ShieldPlus, Trash2, 
+  AlertCircle, CheckCircle2, Import, Search, Edit2, Check, X,
+  PlusCircle, Trophy, Settings2, Shield
+} from 'lucide-react';
 
-// Importación de librerías para generación y descarga automática de PDF
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// Importamos la arquitectura modular
-import StatsCards from '../components/admin/StatsCards';
-import AdminForms from '../components/admin/AdminForms';
-import TeamGrid from '../components/admin/TeamGrid';
-import TeamModal from '../components/admin/TeamModal';
-import FixtureManager from '../components/admin/FixtureManager';
-
-type SeccionPanel = 'inscripciones' | 'fixture';
+type SeccionPanel = 'ediciones' | 'registro' | 'importar' | 'padron' | 'sorteo' | 'fixture';
 
 export default function AdminPanel() {
-  const [seccion, setSeccion] = useState<SeccionPanel>('inscripciones');
+  // === ESTADOS FIREBASE Y NAVEGACIÓN ===
+  const [ediciones, setEdiciones] = useState<EdicionConfig[]>([]);
+  const [edicionSeleccionada, setEdicionSeleccionada] = useState<EdicionConfig | null>(null);
+  const [seccion, setSeccion] = useState<SeccionPanel>('ediciones');
+
   const [equipos, setEquipos] = useState<Equipo[]>([]);
   const [jugadores, setJugadores] = useState<Jugador[]>([]);
   const [partidos, setPartidos] = useState<Partido[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [idEquipoSeleccionado, setIdEquipoSeleccionado] = useState('');
-  const [equipoGestionado, setEquipoGestionado] = useState<Equipo | null>(null);
+  const [cargando, setCargando] = useState<boolean>(true);
 
+  // Mensajes de Feedback
   const [mensaje, setMensaje] = useState<{ tipo: 'exito' | 'error'; texto: string } | null>(null);
-  const [guardando, setGuardando] = useState(false);
-  const [borrando, setBorrando] = useState(false);
 
+  // === FORMULARIO CREAR / EDITAR EDICIÓN ===
+  const [mostrarFormEdicion, setMostrarFormEdicion] = useState(false);
+  const [idEdicionEditando, setIdEdicionEditando] = useState<string | null>(null);
+  const [numEd, setNumEd] = useState<number>(7);
+  const [nomEd, setNomEd] = useState<string>('VII Edición');
+  const [fSorteo, setFSorteo] = useState<string>('Viernes 31 de Julio (8:30 PM)');
+  const [fSabado, setFSabado] = useState<string>('Sábado 1 de Agosto');
+  const [fDomingo, setFDomingo] = useState<string>('Domingo 2 de Agosto');
+  const [ubicCancha, setUbicCancha] = useState<string>('Cancha Villa Busch');
+  const [costoInsc, setCostoInsc] = useState<number>(3);
+  const [reglasTexto, setReglasTexto] = useState<string>('Compromiso total\n1 min fuera por falta fuerte\nRespeto al árbitro');
+  const [premio1, setPremio1] = useState<string>('1 CocaChampions 3L + Medallas + 1 Bebida 500ml p/jugador');
+  const [premio2, setPremio2] = useState<string>('Medallas de Plata + Bebidas p/jugador');
+
+  // === FORMULARIO REGISTRO JUGADOR / EQUIPO ===
+  const [nuevoNombreJugador, setNuevoNombreJugador] = useState('');
+  const [disponibilidadJugador, setDisponibilidadJugador] = useState<DiaDisponibilidad>('Ambos');
+
+  const [nuevoNombreEquipo, setNuevoNombreEquipo] = useState('');
+  const [diaEquipo, setDiaEquipo] = useState<DiaJuego>('Sábado');
+  const [grupoEquipo, setGrupoEquipo] = useState<Grupo>('A');
+
+  // === PADRÓN OFICIAL BÚSQUEDA Y EDICIÓN ===
+  const [busquedaPadron, setBusquedaPadron] = useState('');
+  const [idJugadorEditando, setIdJugadorEditando] = useState<string | null>(null);
+  const [nombreEditando, setNombreEditando] = useState('');
+  const [dispEditando, setDispEditando] = useState<DiaDisponibilidad>('Ambos');
+
+  // === IMPORTADOR HISTÓRICO ===
+  const [busquedaImportar, setBusquedaImportar] = useState('');
+  const [dispImportar, setDispImportar] = useState<Record<string, DiaDisponibilidad>>({});
+
+  // === CREACIÓN / EDICIÓN DE PARTIDOS ===
+  const [idLocalPartido, setIdLocalPartido] = useState('');
+  const [idVisitantePartido, setIdVisitantePartido] = useState('');
+  const [diaPartido, setDiaPartido] = useState<DiaJuego>('Sábado');
+  const [fasePartido, setFasePartido] = useState('Fase de Grupos');
+
+  // Marcadores en vivo
+  const [golesLocalEdit, setGolesLocalEdit] = useState<Record<string, number>>({});
+  const [golesVisitanteEdit, setGolesVisitanteEdit] = useState<Record<string, number>>({});
+
+  const [errorPermisos, setErrorPermisos] = useState<boolean>(false);
+
+  // === SUSCRIPCIÓN EN TIEMPO REAL ===
   useEffect(() => {
-    const desuscribirEquipos = FutbolService.escucharEquipos((listaEquipos) => {
-      setEquipos(listaEquipos);
-      if (listaEquipos.length > 0 && !idEquipoSeleccionado) {
-        setIdEquipoSeleccionado(listaEquipos[0].id || '');
+    const handleErr = (err: Error & { code?: string }) => {
+      console.error("Error en Firestore (Admin):", err);
+      if (err?.code === 'permission-denied' || err?.message?.includes('permission')) {
+        setErrorPermisos(true);
       }
-    });
+      setCargando(false);
+    };
 
-    const desuscribirJugadores = FutbolService.escucharJugadores((listaJugadores) => {
-      setJugadores(listaJugadores);
-    });
+    const desuscribirEdiciones = EdicionesService.escucharEdiciones((listaEd) => {
+      setEdiciones(listaEd || []);
+    }, handleErr);
 
-    const desuscribirPartidos = FutbolService.escucharPartidos((listaPartidos) => {
-      setPartidos(listaPartidos);
-      setLoading(false);
-    });
+    const desuscribirEquipos = FutbolService.escucharEquipos((lista) => setEquipos(lista || []), handleErr);
+    const desuscribirJugadores = FutbolService.escucharJugadores((lista) => setJugadores(lista || []), handleErr);
+    const desuscribirPartidos = FutbolService.escucharPartidos((lista) => {
+      setPartidos(lista || []);
+      setCargando(false);
+    }, handleErr);
 
     return () => {
+      desuscribirEdiciones();
       desuscribirEquipos();
       desuscribirJugadores();
       desuscribirPartidos();
     };
-  }, [idEquipoSeleccionado]);
+  }, []);
 
   const mostrarFeedback = (tipo: 'exito' | 'error', texto: string) => {
     setMensaje({ tipo, texto });
-    setTimeout(() => setMensaje(null), 4000);
+    setTimeout(() => setMensaje(null), 3500);
   };
 
-  const handleCrearEquipo = async (nombre: string, dia: DiaJuego) => {
-    setGuardando(true);
+  // ID Y NUMERO DE LA EDICIÓN DE TRABAJO ACTUAL EN EL ADMIN
+  const edicionTrabajo = edicionSeleccionada || ediciones.find(e => e.activa) || ediciones[0] || null;
+  const idEdicionTrabajo = edicionTrabajo?.id || '';
+
+  // FILTRADOS POR LA EDICIÓN DE TRABAJO
+  const equiposEdicion = useMemo(() => {
+    if (!idEdicionTrabajo) return [];
+    return equipos.filter(e => e.edicion_id === idEdicionTrabajo);
+  }, [equipos, idEdicionTrabajo]);
+
+  const jugadoresEdicion = useMemo(() => {
+    if (!idEdicionTrabajo) return [];
+    return jugadores.filter(j => j.edicion_id === idEdicionTrabajo);
+  }, [jugadores, idEdicionTrabajo]);
+
+  const partidosEdicion = useMemo(() => {
+    if (!idEdicionTrabajo) return [];
+    return partidos.filter(p => p.edicion_id === idEdicionTrabajo);
+  }, [partidos, idEdicionTrabajo]);
+
+  // JUGADORES DE EDICIONES HISTÓRICAS (No pertenecientes a la edición de trabajo)
+  const jugadoresHistoricos = useMemo(() => {
+    if (!idEdicionTrabajo) return jugadores;
+    return jugadores.filter(j => j.edicion_id !== idEdicionTrabajo);
+  }, [jugadores, idEdicionTrabajo]);
+
+  // Jugadores en la bolsa de sorteo de la edición de trabajo (id_equipo vacío o sin definir)
+  const bolsaSorteo = useMemo(() => {
+    return jugadoresEdicion.filter(j => !j.id_equipo || j.id_equipo.trim() === '');
+  }, [jugadoresEdicion]);
+
+  // 1️⃣ HANDLERS DE EDICIONES
+  const handleCrearOActualizarEdicion = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      await FutbolService.crearEquipo({ nombre, dia_juego: dia });
-      mostrarFeedback('exito', `¡Equipo "${nombre}" creado con éxito!`);
-    } catch (error) {
-      mostrarFeedback('error', 'Error al guardar el equipo en Firebase.');
-    } finally {
-      setGuardando(false);
+      const datosEdicion: Omit<EdicionConfig, 'id'> = {
+        numero: Number(numEd),
+        nombre: nomEd.trim(),
+        activa: idEdicionEditando ? (ediciones.find(e => e.id === idEdicionEditando)?.activa ?? false) : (ediciones.length === 0),
+        fecha_sorteo: fSorteo.trim(),
+        fecha_sabado: fSabado.trim(),
+        fecha_domingo: fDomingo.trim(),
+        ubicacion: ubicCancha.trim(),
+        costo_inscripcion: Number(costoInsc),
+        reglas_oro: reglasTexto.split('\n').map(r => r.trim()).filter(r => r !== ''),
+        premios: {
+          primer_lugar: premio1.trim(),
+          segundo_lugar: premio2.trim()
+        }
+      };
+
+      if (idEdicionEditando) {
+        await EdicionesService.actualizarEdicion(idEdicionEditando, datosEdicion);
+        mostrarFeedback('exito', `Edición "${nomEd}" actualizada.`);
+      } else {
+        const docRef = await EdicionesService.crearEdicion(datosEdicion);
+        mostrarFeedback('exito', `¡${nomEd} creada correctamente!`);
+        // Si es la única, seleccionarla
+        setEdicionSeleccionada({ id: docRef.id, ...datosEdicion });
+      }
+
+      setMostrarFormEdicion(false);
+      setIdEdicionEditando(null);
+    } catch (err: unknown) {
+      console.error("Error al guardar edición:", err);
+      const eObj = err as { message?: string; code?: string };
+      const msg = eObj?.message || eObj?.code || 'Error desconocido';
+      mostrarFeedback('error', `Error al guardar: ${msg}`);
     }
   };
 
-  const handleRegistrarJugador = async (nombre: string, idEquipo: string) => {
-    const yaExisteEnEquipo = jugadores.some(
-      j => j.nombre.toLowerCase() === nombre.toLowerCase() && j.id_equipo === idEquipo
-    );
+  const handleActivarEdicion = async (id: string) => {
+    try {
+      await EdicionesService.activarEdicion(id, ediciones);
+      const edActiva = ediciones.find(e => e.id === id) || null;
+      if (edActiva) setEdicionSeleccionada(edActiva);
+      mostrarFeedback('exito', 'Edición marcada como ACTIVA.');
+    } catch {
+      mostrarFeedback('error', 'Error al activar la edición.');
+    }
+  };
 
-    if (yaExisteEnEquipo) {
-      mostrarFeedback('error', `¡${nombre} ya está inscrito en este equipo!`);
+  const handleCargarFormEdicionEdit = (ed: EdicionConfig) => {
+    if (!ed.id) return;
+    setIdEdicionEditando(ed.id);
+    setNumEd(ed.numero || 7);
+    setNomEd(ed.nombre || '');
+    setFSorteo(ed.fecha_sorteo || '');
+    setFSabado(ed.fecha_sabado || '');
+    setFDomingo(ed.fecha_domingo || '');
+    setUbicCancha(ed.ubicacion || '');
+    setCostoInsc(ed.costo_inscripcion || 3);
+    setReglasTexto((ed.reglas_oro || []).join('\n'));
+    setPremio1(ed.premios?.primer_lugar || '');
+    setPremio2(ed.premios?.segundo_lugar || '');
+    setMostrarFormEdicion(true);
+  };
+
+  // 2️⃣ HANDLERS DE REGISTRO
+  const handleRegistrarJugador = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nuevoNombreJugador.trim() || !idEdicionTrabajo) {
+      mostrarFeedback('error', 'Selecciona una edición y escribe un nombre.');
       return;
     }
 
-    setGuardando(true);
     try {
-      const resultado = await FutbolService.registrarJugador({ nombre, id_equipo: idEquipo });
-      if (resultado.exito) {
-        mostrarFeedback('exito', `¡${nombre} inscrito con éxito!`);
-      } else {
-        mostrarFeedback('error', resultado.mensaje);
+      await FutbolService.registrarJugador({
+        nombre: nuevoNombreJugador.trim(),
+        id_equipo: '',
+        disponibilidad: disponibilidadJugador,
+        edicion_id: idEdicionTrabajo
+      });
+      mostrarFeedback('exito', `Jugador "${nuevoNombreJugador}" inscripto a la bolsa.`);
+      setNuevoNombreJugador('');
+    } catch {
+      mostrarFeedback('error', 'Error al inscribir jugador.');
+    }
+  };
+
+  const handleCrearEquipo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nuevoNombreEquipo.trim() || !idEdicionTrabajo) return;
+
+    try {
+      await FutbolService.crearEquipo({
+        nombre: nuevoNombreEquipo.trim(),
+        dia_juego: diaEquipo,
+        grupo: grupoEquipo,
+        edicion_id: idEdicionTrabajo
+      });
+      mostrarFeedback('exito', `Selección "${nuevoNombreEquipo}" creada.`);
+      setNuevoNombreEquipo('');
+    } catch {
+      mostrarFeedback('error', 'Error al crear la selección.');
+    }
+  };
+
+  // 3️⃣ HANDLER DE IMPORTACIÓN HISTÓRICA
+  const handleImportarJugador = async (jHist: Jugador) => {
+    if (!idEdicionTrabajo) return;
+    try {
+      const disp = dispImportar[jHist.id || ''] || jHist.disponibilidad || 'Ambos';
+      await FutbolService.importarJugadorAEdicionActual(jHist, disp, idEdicionTrabajo);
+      mostrarFeedback('exito', `¡${jHist.nombre} promovido a ${edicionTrabajo?.nombre}!`);
+    } catch {
+      mostrarFeedback('error', 'Error al importar jugador.');
+    }
+  };
+
+  // 4️⃣ HANDLERS DE EDICIÓN Y ELIMINACIÓN DE JUGADOR EN PADRÓN
+  const handleGuardarEdicionJugador = async (id: string) => {
+    try {
+      await FutbolService.actualizarJugador(id, {
+        nombre: nombreEditando.trim(),
+        disponibilidad: dispEditando
+      });
+      setIdJugadorEditando(null);
+      mostrarFeedback('exito', 'Jugador actualizado.');
+    } catch {
+      mostrarFeedback('error', 'Error al actualizar jugador.');
+    }
+  };
+
+  const handleEliminarJugador = async (id: string, nombre: string) => {
+    if (!window.confirm(`¿Seguro que deseas eliminar a "${nombre}"?`)) return;
+    try {
+      await FutbolService.eliminarJugador(id);
+      mostrarFeedback('exito', `Jugador "${nombre}" eliminado.`);
+    } catch {
+      mostrarFeedback('error', 'Error al eliminar jugador.');
+    }
+  };
+
+  // 5️⃣ HANDLERS DE SORTEO / DRAFT
+  const handleAsignarJugador = async (idJugador: string, idEquipo: string) => {
+    try {
+      await FutbolService.actualizarJugador(idJugador, { id_equipo: idEquipo });
+      mostrarFeedback('exito', 'Jugador asignado al equipo.');
+    } catch {
+      mostrarFeedback('error', 'Error al asignar jugador.');
+    }
+  };
+
+  const handleDevolverABolsa = async (idJugador: string) => {
+    try {
+      await FutbolService.actualizarJugador(idJugador, { id_equipo: '' });
+      mostrarFeedback('exito', 'Jugador devuelto a la bolsa.');
+    } catch {
+      mostrarFeedback('error', 'Error al mover jugador.');
+    }
+  };
+
+  const handleEliminarEquipo = async (idEquipo: string, nombre: string) => {
+    if (!window.confirm(`¿Seguro que deseas eliminar la selección "${nombre}"?`)) return;
+    try {
+      const asignados = jugadoresEdicion.filter(j => j.id_equipo === idEquipo);
+      for (const j of asignados) {
+        if (j.id) await FutbolService.actualizarJugador(j.id, { id_equipo: '' });
       }
-    } catch (error) {
-      mostrarFeedback('error', 'Error de red al inscribir jugador.');
-    } finally {
-      setGuardando(false);
-    }
-  };
-
-  const handleEliminarJugador = async (idJugador: string, textJ: string) => {
-    if (!window.confirm(`¿Retirar a ${textJ} del equipo?`)) return;
-    try {
-      await FutbolService.eliminarJugador(idJugador);
-      mostrarFeedback('exito', `Se retiró a ${textJ}.`);
-    } catch (error) {
-      mostrarFeedback('error', 'No se pudo eliminar.');
-    }
-  };
-
-  const handleEliminarEquipoCompleto = async (idEquipo: string, nombreE: string) => {
-    if (!window.confirm(`🚨 ¿Borrar el equipo "${nombreE}" junto con sus jugadores?`)) return;
-    setBorrando(true);
-    try {
       await FutbolService.eliminarEquipo(idEquipo);
-      mostrarFeedback('exito', `Equipo "${nombreE}" removido.`);
-      setEquipoGestionado(null);
-    } catch (error) {
-      mostrarFeedback('error', 'Error al eliminar el equipo.');
-    } finally {
-      setBorrando(false);
+      mostrarFeedback('exito', `Selección "${nombre}" eliminada.`);
+    } catch {
+      mostrarFeedback('error', 'Error al eliminar equipo.');
     }
   };
 
-  // Helper interno para limpiar tildes y eñes antes de inyectar texto al PDF
-  const sanitizarTextoParaPDF = (texto: string): string => {
-    return texto
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // Remueve tildes de forma matemática
-      .replace(/ñ/g, "n")
-      .replace(/Ñ/g, "N")
-      .toUpperCase(); // Forzamos mayúsculas para look deportivo uniforme
+  // 6️⃣ HANDLERS DE PARTIDOS / FIXTURE
+  const handleCrearPartido = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!idLocalPartido || !idVisitantePartido || idLocalPartido === idVisitantePartido) {
+      mostrarFeedback('error', 'Selecciona dos equipos distintos.');
+      return;
+    }
+
+    const eqLocal = equiposEdicion.find(e => e.id === idLocalPartido);
+    const eqVisitante = equiposEdicion.find(e => e.id === idVisitantePartido);
+
+    if (!eqLocal || !eqVisitante) return;
+
+    try {
+      await FutbolService.crearPartido({
+        id_equipo_local: idLocalPartido,
+        id_equipo_visitante: idVisitantePartido,
+        nombre_local: eqLocal.nombre,
+        nombre_visitante: eqVisitante.nombre,
+        goles_local: 0,
+        goles_visitante: 0,
+        dia_juego: diaPartido,
+        estado: 'programado',
+        fase: fasePartido,
+        edicion_id: idEdicionTrabajo
+      });
+      mostrarFeedback('exito', 'Partido programado con éxito.');
+      setIdLocalPartido('');
+      setIdVisitantePartido('');
+    } catch {
+      mostrarFeedback('error', 'Error al programar el partido.');
+    }
   };
 
- // 🚀 GENERADOR DE PDF SANITIZADO (ACTUALIZADO: MULTI-PÁGINA SÁBADO Y DOMINGO)
-  const handleDescargarReportePDF = () => {
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a4'
-    });
+  const handleGuardarResultadoPartido = async (p: Partido) => {
+    if (!p.id) return;
+    const gL = golesLocalEdit[p.id] ?? p.goles_local;
+    const gV = golesVisitanteEdit[p.id] ?? p.goles_visitante;
 
-    // Definimos el ciclo para que procese ambas jornadas de forma secuencial
-    const jornadas: DiaJuego[] = ['Sábado', 'Domingo'];
-
-    jornadas.forEach((dia, index) => {
-      // 🔄 Si ya procesó el Sábado (index 0), salta a una página nueva limpia para el Domingo
-      if (index > 0) {
-        doc.addPage();
-      }
-
-      // Configuración inicial de fuente segura y limpia
-      doc.setFont("helvetica", "bold");
-      
-      // Encabezado Estético Principal de la Página
-      doc.setFontSize(22);
-      doc.setTextColor(244, 0, 9); // Rojo Coca-Cola Oficial
-      doc.text("COCA-COLA CHAMPIONS - VI EDICION", 14, 16);
-      
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(80, 80, 80); // Gris Oscuro Elegante
-      // ⚡ El título ahora se adapta automáticamente al día actual de la página
-      doc.text(`CALENDARIO OFICIAL DE COMPETENCIA Y DISTRIBUCION DE EQUIPOS (${sanitizarTextoParaPDF(dia)})`, 14, 22);
-
-      // Separador visual gris sutil
-      doc.setDrawColor(220, 220, 220);
-      doc.line(14, 25, 283, 25);
-
-      // --- TABLA 1: CONFORMACIÓN DE GRUPOS DEL DÍA ---
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.setTextColor(0, 0, 0);
-      doc.text(`CONFORMACION DE GRUPOS (${sanitizarTextoParaPDF(dia)})`, 14, 33);
-
-      // ⚡ Filtramos los equipos dinámicamente según el día de la página actual
-      const equiposGrupoA = equipos.filter(e => e.dia_juego === dia && e.grupo === 'A');
-      const equiposGrupoB = equipos.filter(e => e.dia_juego === dia && e.grupo === 'B');
-      
-      const maxFilasGrupos = Math.max(equiposGrupoA.length, equiposGrupoB.length, 1);
-      const filasGrupos = [];
-
-      for (let i = 0; i < maxFilasGrupos; i++) {
-        const eqA = equiposGrupoA[i];
-        const eqB = equiposGrupoB[i];
-
-        const miembrosA = eqA ? jugadores.filter(j => j.id_equipo === eqA.id).map(j => j.nombre).join(', ') : '';
-        const miembrosB = eqB ? jugadores.filter(j => j.id_equipo === eqB.id).map(j => j.nombre).join(', ') : '';
-
-        filasGrupos.push([
-          eqA ? sanitizarTextoParaPDF(eqA.nombre) : '-',
-          miembrosA ? sanitizarTextoParaPDF(miembrosA) : (eqA ? 'SIN JUGADORES' : '-'),
-          eqB ? sanitizarTextoParaPDF(eqB.nombre) : '-',
-          miembrosB ? sanitizarTextoParaPDF(miembrosB) : (eqB ? 'SIN JUGADORES' : '-')
-        ]);
-      }
-
-      autoTable(doc, {
-        startY: 37,
-        head: [['EQUIPO (GRUPO A)', 'INTEGRANTES DE PLANTILLA', 'EQUIPO (GRUPO B)', 'INTEGRANTES DE PLANTILLA']],
-        body: filasGrupos,
-        headStyles: { fillColor: [244, 0, 9], fontSize: 9, fontStyle: 'bold', halign: 'center' },
-        styles: { fontSize: 8.5, font: 'helvetica', cellPadding: 3.5 },
-        columnStyles: {
-          0: { fontStyle: 'bold', cellWidth: 45 },
-          1: { textColor: [60, 60, 60] },
-          2: { fontStyle: 'bold', cellWidth: 45 },
-          3: { textColor: [60, 60, 60] }
-        },
-        theme: 'grid'
+    try {
+      await FutbolService.actualizarPartido(p.id, {
+        goles_local: Number(gL),
+        goles_visitante: Number(gV),
+        estado: 'jugado'
       });
-
-      // --- TABLA 2: FIXTURE Y CRUCES DE LAS 3 VUELTAS DEL DÍA ---
-      const ySiguiente = (doc as any).lastAutoTable.finalY + 12;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.setTextColor(0, 0, 0);
-      doc.text(`FIXTURE Y CRONOGRAMA DE ENCUENTROS (${sanitizarTextoParaPDF(dia)})`, 14, ySiguiente);
-
-      const filasPartidos: any[] = [];
-      const vueltas = ['1RA VUELTA', '2DA VUELTA', '3RA VUELTA'] as const;
-
-      vueltas.forEach((vuel) => {
-        // ⚡ Filtramos los partidos dinámicamente evaluando el día de la página actual
-        const partidosDeVuelta = partidos.filter(p => p.dia_juego === dia && p.vuelta === vuel);
-        partidosDeVuelta.forEach((p, idx) => {
-          filasPartidos.push([
-            vuel,
-            `GRUPO ${p.grupo}`,
-            sanitizarTextoParaPDF(p.nombre_local),
-            p.estado === 'jugado' ? `${p.goles_local} : ${p.goles_visitante}` : '   :   ', // Vacío si falta jugar
-            sanitizarTextoParaPDF(p.nombre_visitante),
-            `PARTIDO ${idx + 1}`
-          ]);
-        });
-      });
-
-      autoTable(doc, {
-        startY: ySiguiente + 4,
-        head: [['JORNADA / FASE', 'GRUPO', 'EQUIPO LOCAL', 'MARCADOR', 'EQUIPO VISITANTE', 'ORDEN']],
-        body: filasPartidos.length > 0 ? filasPartidos : [['-', '-', `NO HAY ENCUENTROS AGENDADOS PARA EL ${sanitizarTextoParaPDF(dia)}`, '-', '-', '-']],
-        headStyles: { fillColor: [20, 20, 20], fontSize: 9, fontStyle: 'bold', halign: 'center' },
-        styles: { fontSize: 8.5, font: 'helvetica', halign: 'center', cellPadding: 3.5 },
-        columnStyles: {
-          0: { fontStyle: 'bold', fillColor: [250, 250, 250] },
-          1: { fontStyle: 'bold' },
-          2: { halign: 'right', fontStyle: 'bold', cellWidth: 60 },
-          3: { fontStyle: 'bold', fillColor: [240, 240, 240], fontSize: 10 }, 
-          4: { halign: 'left', fontStyle: 'bold', cellWidth: 60 }   
-        },
-        theme: 'grid'
-      });
-    });
-
-    // Descarga instantánea y automática del documento unificado
-    doc.save("Fixture_Oficial_Coca_Champions.pdf");
+      mostrarFeedback('exito', 'Resultado del partido guardado.');
+    } catch {
+      mostrarFeedback('error', 'Error al guardar resultado.');
+    }
   };
+
+  const handleEliminarPartido = async (id: string) => {
+    if (!window.confirm('¿Seguro que deseas eliminar este partido?')) return;
+    try {
+      await FutbolService.eliminarPartido(id);
+      mostrarFeedback('exito', 'Partido eliminado.');
+    } catch {
+      mostrarFeedback('error', 'Error al eliminar el partido.');
+    }
+  };
+
+  // 7️⃣ GENERADOR DE REPORTES PDF
+  const handleDescargarPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    
+    // Encabezado
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.setTextColor(244, 0, 9); // Rojo CocaChampions
+    doc.text(`COCACHAMPIONS - ${edicionTrabajo?.nombre || 'TORNEO OFICIAL'}`, 14, 16);
+
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.text(`PLANILLA OFICIAL DE COMPETENCIA, SELECCIONES Y DRAFT`, 14, 22);
+
+    const filas = equiposEdicion.map(eq => {
+      const plantilla = jugadoresEdicion
+        .filter(j => j.id_equipo === eq.id)
+        .map(j => j.nombre.toUpperCase())
+        .join(', ');
+
+      return [
+        eq.nombre.toUpperCase(),
+        `GRUPO ${eq.grupo || 'A'}`,
+        eq.dia_juego.toUpperCase(),
+        plantilla || 'SIN JUGADORES ASIGNADOS'
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 28,
+      head: [['EQUIPO / SELECCIÓN', 'GRUPO', 'DÍA DE JUEGO', 'PLANTEL CONFIRMADO']],
+      body: filas,
+      headStyles: { fillColor: [244, 0, 9], fontSize: 9, fontStyle: 'bold' },
+      styles: { fontSize: 8.5, font: 'helvetica', cellPadding: 3 }
+    });
+
+    doc.save(`Planilla_Oficial_${edicionTrabajo?.nombre.replace(/\s+/g, '_') || 'CocaChampions'}.pdf`);
+  };
+
+  // Filtrado de Padrón
+  const padronFiltrado = useMemo(() => {
+    if (!busquedaPadron.trim()) return jugadoresEdicion;
+    return jugadoresEdicion.filter(j => 
+      j.nombre.toLowerCase().includes(busquedaPadron.toLowerCase())
+    );
+  }, [jugadoresEdicion, busquedaPadron]);
+
+  // Filtrado de Históricos
+  const historicosFiltrados = useMemo(() => {
+    if (!busquedaImportar.trim()) return jugadoresHistoricos;
+    return jugadoresHistoricos.filter(j => 
+      j.nombre.toLowerCase().includes(busquedaImportar.toLowerCase())
+    );
+  }, [jugadoresHistoricos, busquedaImportar]);
+
+  if (cargando) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex justify-center items-center">
+        <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 px-4 py-6 font-sans antialiased max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gray-100 text-gray-900 font-sans pb-12">
       
-      {/* 🔝 MESA DE CONTROL / BARRA SUPERIOR DE ACCIONES */}
-      <div className="bg-neutral-950 p-4 rounded-3xl text-white flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
-        <div>
-          <h1 className="font-black tracking-tight text-base uppercase text-center sm:text-left">Mesa de Control y Operaciones</h1>
-          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider text-center sm:text-left">Torneo Interno Coca-Cola Champions</p>
-        </div>
-        
-        <div className="flex flex-wrap bg-neutral-900 p-1 rounded-2xl border border-neutral-800 w-full sm:w-auto justify-center gap-1 sm:gap-0">
-          <button type="button" onClick={() => setSeccion('inscripciones')} className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer transition-all ${seccion === 'inscripciones' ? 'bg-[#F40009] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>
-            <Users className="w-3.5 h-3.5" /> Inscripciones
-          </button>
-          <button type="button" onClick={() => setSeccion('fixture')} className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer transition-all ${seccion === 'fixture' ? 'bg-[#F40009] text-white shadow-lg' : 'text-gray-400 hover:text-white'}`}>
-            <Calendar className="w-3.5 h-3.5" /> Fixture y Grupos
-          </button>
-          <button type="button" onClick={handleDescargarReportePDF} className="flex items-center justify-center gap-1.5 bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer transition-all">
-            <Download className="w-3.5 h-3.5 text-red-500 animate-bounce" /> Descargar Fixture PDF
-          </button>
-        </div>
-      </div>
+      {/* 🔴 BARRA DE CONTROL SUPERIOR */}
+      <header className="bg-slate-950 text-white shadow-xl sticky top-0 z-40 border-b border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+          
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-red-600 rounded-xl">
+              <Trophy className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-black text-lg uppercase italic tracking-wider">
+                  Mesa de Control <span className="text-red-500">CocaChampions</span>
+                </h1>
+                {edicionTrabajo?.activa && (
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase">
+                    Activa
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 font-medium">
+                Edición de Trabajo: <strong className="text-white">{edicionTrabajo?.nombre || 'Ninguna'}</strong> | Ubicación: <span className="text-red-400">{edicionTrabajo?.ubicacion || 'Villa Busch'}</span>
+              </p>
+            </div>
+          </div>
 
-      {/* BANNER DE FEEDBACK GLOBAL */}
+          {/* SELECTOR RÁPIDO DE EDICIÓN & ACCIONES */}
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+            <select
+              value={edicionTrabajo?.id || ''}
+              onChange={(e) => {
+                const en = ediciones.find(ed => ed.id === e.target.value);
+                if (en) setEdicionSeleccionada(en);
+              }}
+              className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold uppercase text-white cursor-pointer"
+            >
+              {ediciones.map(ed => (
+                <option key={ed.id} value={ed.id}>
+                  {ed.nombre} {ed.activa ? '★ (ACTIVA)' : ''}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={handleDescargarPDF}
+              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>Planilla PDF</span>
+            </button>
+          </div>
+
+        </div>
+
+        {/* NAVEGACIÓN PESTAÑAS DEL ADMIN */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 border-t border-slate-900">
+          <div className="flex items-center gap-1 overflow-x-auto py-2 scrollbar-none">
+            {[
+              { id: 'ediciones', label: 'Gestión Ediciones', icon: Settings2 },
+              { id: 'registro', label: 'Alta & Registro', icon: UserPlus },
+              { id: 'importar', label: 'Importador Histórico', icon: Import },
+              { id: 'padron', label: `Padrón Oficial (${jugadoresEdicion.length})`, icon: Users },
+              { id: 'sorteo', label: `Módulo Sorteo / Draft (${bolsaSorteo.length})`, icon: Shuffle },
+              { id: 'fixture', label: `Partidos & Marcadores (${partidosEdicion.length})`, icon: Calendar }
+            ].map(tab => {
+              const IconComp = tab.icon;
+              const activo = seccion === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setSeccion(tab.id as SeccionPanel)}
+                  className={`px-3 py-2 rounded-xl text-xs font-black uppercase flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-all ${
+                    activo 
+                      ? 'bg-red-600 text-white shadow-md' 
+                      : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                  }`}
+                >
+                  <IconComp className="w-4 h-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </header>
+
+      {/* FEEDBACK MENSAJE FLOATING */}
       {mensaje && (
-        <div className="p-3.5 rounded-2xl text-xs font-black uppercase tracking-wider text-center border animate-pulse bg-emerald-50 text-emerald-700 border-emerald-200">
-          {mensaje.texto}
+        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl text-xs font-black uppercase flex items-center gap-2 text-white animate-bounce ${
+          mensaje.tipo === 'exito' ? 'bg-emerald-600' : 'bg-red-600'
+        }`}>
+          {mensaje.tipo === 'exito' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+          <span>{mensaje.texto}</span>
         </div>
       )}
 
-      {/* METRICAS DEL TORNEO */}
-      <div>
-        <StatsCards equipos={equipos} jugadores={jugadores} />
-      </div>
+      {/* 🚀 CONTENIDO DE SECCIONES ADMIN */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-      {/* VISTAS OPERATIVAS INTERACTIVAS */}
-      <div>
-        {seccion === 'inscripciones' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <AdminForms 
-              equipos={equipos} 
-              jugadores={jugadores}
-              loading={loading}
-              guardando={guardando}
-              mensaje={null}
-              idEquipoSeleccionado={idEquipoSeleccionado}
-              setIdEquipoSeleccionado={setIdEquipoSeleccionado}
-              onCrearEquipo={handleCrearEquipo}
-              onRegistrarJugador={handleRegistrarJugador}
-            />
-
-            <TeamGrid 
-              equipos={equipos} 
-              jugadores={jugadores} 
-              onSelectEquipo={setEquipoGestionado} 
-            />
+        {errorPermisos && (
+          <div className="bg-red-950 text-white border border-red-800 p-5 rounded-3xl space-y-3">
+            <div className="flex items-center gap-2 text-red-400 font-black text-sm uppercase">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              <span>Acceso Bloqueado por Reglas de Firestore (Missing or insufficient permissions)</span>
+            </div>
+            <p className="text-xs text-red-200">
+              Firebase está rechazando las peticiones de lectura y escritura. Necesitas actualizar las <strong>Reglas de Seguridad de Firestore</strong> en la consola de Firebase.
+            </p>
+            <div className="bg-black/50 p-3 rounded-2xl border border-red-900/50 font-mono text-[11px] text-emerald-400">
+              <p className="text-[10px] font-bold text-gray-400 mb-1">// Ve a Firebase Console &gt; Firestore Database &gt; Reglas y pega:</p>
+              <code>{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}</code>
+            </div>
           </div>
-        ) : (
-          <FixtureManager equipos={equipos} mostrarFeedback={mostrarFeedback} />
         )}
-      </div>
 
-      {/* MODAL DE EDICIÓN DE MIEMBROS */}
-      <div>
-        {equipoGestionado && (
-          <TeamModal 
-            equipo={equipoGestionado}
-            jugadores={jugadores}
-            borrando={borrando}
-            onClose={() => setEquipoGestionado(null)}
-            onEliminarJugador={handleEliminarJugador}
-            onEliminarEquipo={handleEliminarEquipoCompleto}
-          />
+        {/* 1️⃣ SECCIÓN: GESTIÓN DE EDICIONES (CRUD + ACTIVAR) */}
+        {seccion === 'ediciones' && (
+          <div className="space-y-6">
+            
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-lg font-black uppercase text-gray-900">Gestión de Ediciones del Torneo</h2>
+                <p className="text-xs text-gray-500">Crea nuevas ediciones, cambia cuál es la Edición Activa en tiempo real o edita la configuración.</p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setIdEdicionEditando(null);
+                  setNumEd(ediciones.length + 1);
+                  setNomEd(`Edición #${ediciones.length + 1}`);
+                  setMostrarFormEdicion(!mostrarFormEdicion);
+                }}
+                className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-black uppercase flex items-center gap-2 cursor-pointer shadow-md transition-all"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Nueva Edición</span>
+              </button>
+            </div>
+
+            {/* FORMULARIO CREAR / EDITAR EDICIÓN */}
+            {mostrarFormEdicion && (
+              <form onSubmit={handleCrearOActualizarEdicion} className="bg-white p-6 rounded-3xl border border-red-200 shadow-lg space-y-4 text-xs">
+                <h3 className="font-black uppercase text-red-600 text-sm border-b pb-2">
+                  {idEdicionEditando ? 'Editar Edición Existente' : 'Configurar Nueva Edición CocaChampions'}
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="font-bold text-gray-700">Número de Edición</label>
+                    <input type="number" value={numEd} onChange={e => setNumEd(Number(e.target.value))} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" required />
+                  </div>
+                  <div>
+                    <label className="font-bold text-gray-700">Nombre Oficial</label>
+                    <input type="text" value={nomEd} onChange={e => setNomEd(e.target.value)} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" required />
+                  </div>
+                  <div>
+                    <label className="font-bold text-gray-700">Costo Inscripción ($ USD)</label>
+                    <input type="number" value={costoInsc} onChange={e => setCostoInsc(Number(e.target.value))} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" required />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="font-bold text-gray-700">Fecha Sorteo</label>
+                    <input type="text" value={fSorteo} onChange={e => setFSorteo(e.target.value)} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" />
+                  </div>
+                  <div>
+                    <label className="font-bold text-gray-700">Fecha Sábado</label>
+                    <input type="text" value={fSabado} onChange={e => setFSabado(e.target.value)} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" />
+                  </div>
+                  <div>
+                    <label className="font-bold text-gray-700">Fecha Domingo</label>
+                    <input type="text" value={fDomingo} onChange={e => setFDomingo(e.target.value)} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="font-bold text-gray-700">Ubicación / Sede</label>
+                    <input type="text" value={ubicCancha} onChange={e => setUbicCancha(e.target.value)} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" />
+                  </div>
+                  <div>
+                    <label className="font-bold text-gray-700">Premio 1er Lugar</label>
+                    <input type="text" value={premio1} onChange={e => setPremio1(e.target.value)} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" />
+                  </div>
+                  <div>
+                    <label className="font-bold text-gray-700">Premio 2do Lugar</label>
+                    <input type="text" value={premio2} onChange={e => setPremio2(e.target.value)} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-bold text-gray-700">Reglas de Oro (Una por línea)</label>
+                  <textarea value={reglasTexto} onChange={e => setReglasTexto(e.target.value)} rows={3} className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold" />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => setMostrarFormEdicion(false)} className="px-4 py-2 bg-gray-200 font-bold rounded-xl text-gray-700">Cancelar</button>
+                  <button type="submit" className="px-5 py-2 bg-black text-white font-bold rounded-xl">Guardar Edición</button>
+                </div>
+              </form>
+            )}
+
+            {/* LISTADO DE EDICIONES */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {ediciones.map(ed => (
+                <div 
+                  key={ed.id} 
+                  className={`bg-white rounded-3xl p-5 border shadow-sm flex flex-col justify-between space-y-4 relative ${
+                    ed.activa ? 'border-red-500 ring-2 ring-red-500/20' : 'border-gray-200'
+                  }`}
+                >
+                  {ed.activa && (
+                    <span className="absolute top-4 right-4 px-2.5 py-1 bg-red-600 text-white text-[10px] font-black uppercase rounded-lg">
+                      Edición Activa
+                    </span>
+                  )}
+
+                  <div>
+                    <h3 className="font-black text-base text-gray-900 uppercase">{ed.nombre}</h3>
+                    <p className="text-xs text-gray-500 mt-1">Ubicación: {ed.ubicacion}</p>
+
+                    <div className="mt-3 space-y-1 text-xs text-gray-600 bg-gray-50 p-3 rounded-2xl">
+                      <p>🗓️ Sorteo: <strong>{ed.fecha_sorteo}</strong></p>
+                      <p>⚽ Sábado: <strong>{ed.fecha_sabado}</strong></p>
+                      <p>⚽ Domingo: <strong>{ed.fecha_domingo}</strong></p>
+                      <p>💵 Costo: <strong>${ed.costo_inscripcion} USD</strong></p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t">
+                    {!ed.activa && ed.id && (
+                      <button
+                        onClick={() => handleActivarEdicion(ed.id!)}
+                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase transition-all"
+                      >
+                        Activar Edición
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleCargarFormEdicionEdit(ed)}
+                      className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-bold"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+          </div>
         )}
-      </div>
+
+        {/* 2️⃣ SECCIÓN: ALTA Y REGISTRO */}
+        {seccion === 'registro' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* INSCRIBIR JUGADORES */}
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm space-y-4">
+              <div className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-red-600" />
+                <h3 className="font-black uppercase text-sm text-gray-900">Inscribir Jugador a la Bolsa</h3>
+              </div>
+              <p className="text-xs text-gray-500">
+                Se registrará en la bolsa de sorteo de <strong>{edicionTrabajo?.nombre}</strong>.
+              </p>
+
+              <form onSubmit={handleRegistrarJugador} className="space-y-3 text-xs">
+                <div>
+                  <label className="font-bold text-gray-700">Nombre Completo del Jugador</label>
+                  <input
+                    type="text"
+                    value={nuevoNombreJugador}
+                    onChange={e => setNuevoNombreJugador(e.target.value)}
+                    placeholder="Ej. Juan Pérez"
+                    className="w-full mt-1 p-3 bg-gray-50 border rounded-xl font-bold"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-gray-700">Disponibilidad</label>
+                  <select
+                    value={disponibilidadJugador}
+                    onChange={e => setDisponibilidadJugador(e.target.value as DiaDisponibilidad)}
+                    className="w-full mt-1 p-3 bg-gray-50 border rounded-xl font-bold"
+                  >
+                    <option value="Ambos">Ambos Días (Sábado y Domingo)</option>
+                    <option value="Sábado">Sólo Sábado</option>
+                    <option value="Domingo">Sólo Domingo</option>
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black uppercase transition-all shadow-md"
+                >
+                  Registrar Jugador
+                </button>
+              </form>
+            </div>
+
+            {/* CREAR SELECCIONES */}
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm space-y-4">
+              <div className="flex items-center gap-2">
+                <ShieldPlus className="w-5 h-5 text-black" />
+                <h3 className="font-black uppercase text-sm text-gray-900">Crear Selección / Equipo</h3>
+              </div>
+              <p className="text-xs text-gray-500">
+                Equipos para la edición <strong>{edicionTrabajo?.nombre}</strong>.
+              </p>
+
+              <form onSubmit={handleCrearEquipo} className="space-y-3 text-xs">
+                <div>
+                  <label className="font-bold text-gray-700">Nombre del Equipo</label>
+                  <input
+                    type="text"
+                    value={nuevoNombreEquipo}
+                    onChange={e => setNuevoNombreEquipo(e.target.value)}
+                    placeholder="Ej. Los Reyes del Balón"
+                    className="w-full mt-1 p-3 bg-gray-50 border rounded-xl font-bold"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="font-bold text-gray-700">Día de Juego</label>
+                    <select
+                      value={diaEquipo}
+                      onChange={e => setDiaEquipo(e.target.value as DiaJuego)}
+                      className="w-full mt-1 p-3 bg-gray-50 border rounded-xl font-bold"
+                    >
+                      <option value="Sábado">Sábado</option>
+                      <option value="Domingo">Domingo</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-gray-700">Grupo</label>
+                    <select
+                      value={grupoEquipo}
+                      onChange={e => setGrupoEquipo(e.target.value as Grupo)}
+                      className="w-full mt-1 p-3 bg-gray-50 border rounded-xl font-bold"
+                    >
+                      <option value="A">Grupo A</option>
+                      <option value="B">Grupo B</option>
+                      <option value="C">Grupo C</option>
+                      <option value="D">Grupo D</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-black hover:bg-gray-900 text-white rounded-xl font-black uppercase transition-all shadow-md"
+                >
+                  Crear Selección
+                </button>
+              </form>
+            </div>
+
+          </div>
+        )}
+
+        {/* 3️⃣ SECCIÓN: IMPORTADOR HISTÓRICO */}
+        {seccion === 'importar' && (
+          <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-lg font-black uppercase text-gray-900">Importador de Jugadores Históricos</h2>
+                <p className="text-xs text-gray-500">
+                  Busca jugadores inscritos en ediciones anteriores y promuévelos libre a la bolsa de <strong>{edicionTrabajo?.nombre}</strong>.
+                </p>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar jugador..."
+                  value={busquedaImportar}
+                  onChange={e => setBusquedaImportar(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-gray-50 border rounded-xl text-xs font-bold"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {historicosFiltrados.length > 0 ? (
+                historicosFiltrados.map(j => (
+                  <div key={j.id} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 flex items-center justify-between text-xs">
+                    <div>
+                      <h4 className="font-bold text-gray-900">{j.nombre}</h4>
+                      <p className="text-[10px] text-gray-500">Disp. Anterior: {j.disponibilidad || 'Ambos'}</p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={dispImportar[j.id || ''] || j.disponibilidad || 'Ambos'}
+                        onChange={e => setDispImportar({ ...dispImportar, [j.id || '']: e.target.value as DiaDisponibilidad })}
+                        className="p-1.5 bg-white border rounded-lg text-[10px] font-bold"
+                      >
+                        <option value="Ambos">Ambos</option>
+                        <option value="Sábado">Sábado</option>
+                        <option value="Domingo">Domingo</option>
+                      </select>
+
+                      <button
+                        onClick={() => handleImportarJugador(j)}
+                        className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-black uppercase text-[10px] transition-all cursor-pointer"
+                      >
+                        Promover
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-gray-400 italic col-span-full py-8 text-center">
+                  No se encontraron jugadores en ediciones pasadas.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 4️⃣ SECCIÓN: PADRÓN OFICIAL */}
+        {seccion === 'padron' && (
+          <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-lg font-black uppercase text-gray-900">Padrón Oficial de Jugadores ({jugadoresEdicion.length})</h2>
+                <p className="text-xs text-gray-500">Lista completa registrada en la edición <strong>{edicionTrabajo?.nombre}</strong>.</p>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar en el padrón..."
+                  value={busquedaPadron}
+                  onChange={e => setBusquedaPadron(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-gray-50 border rounded-xl text-xs font-bold"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] border-b">
+                  <tr>
+                    <th className="py-3 px-4">Jugador</th>
+                    <th className="py-3 px-4">Disponibilidad</th>
+                    <th className="py-3 px-4">Equipo Asignado</th>
+                    <th className="py-3 px-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-medium">
+                  {padronFiltrado.length > 0 ? (
+                    padronFiltrado.map(j => {
+                      const esEditando = idJugadorEditando === j.id;
+                      const eqAsignado = equiposEdicion.find(eq => eq.id === j.id_equipo);
+
+                      return (
+                        <tr key={j.id} className="hover:bg-gray-50">
+                          <td className="py-3 px-4 font-bold text-gray-900">
+                            {esEditando ? (
+                              <input
+                                type="text"
+                                value={nombreEditando}
+                                onChange={e => setNombreEditando(e.target.value)}
+                                className="p-1.5 bg-white border rounded-lg text-xs font-bold w-full"
+                              />
+                            ) : (
+                              j.nombre
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4">
+                            {esEditando ? (
+                              <select
+                                value={dispEditando}
+                                onChange={e => setDispEditando(e.target.value as DiaDisponibilidad)}
+                                className="p-1.5 bg-white border rounded-lg text-xs font-bold"
+                              >
+                                <option value="Ambos">Ambos</option>
+                                <option value="Sábado">Sábado</option>
+                                <option value="Domingo">Domingo</option>
+                              </select>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-[10px] font-bold">
+                                {j.disponibilidad || 'Ambos'}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-xs font-bold">
+                            {eqAsignado ? (
+                              <span className="text-emerald-600 flex items-center gap-1">
+                                <Shield className="w-3.5 h-3.5" />
+                                {eqAsignado.nombre}
+                              </span>
+                            ) : (
+                              <span className="text-amber-600 italic">En Bolsa</span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-right">
+                            {esEditando ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => j.id && handleGuardarEdicionJugador(j.id)}
+                                  className="p-1.5 bg-emerald-600 text-white rounded-lg"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setIdJugadorEditando(null)}
+                                  className="p-1.5 bg-gray-200 text-gray-700 rounded-lg"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    if (j.id) {
+                                      setIdJugadorEditando(j.id);
+                                      setNombreEditando(j.nombre);
+                                      setDispEditando(j.disponibilidad || 'Ambos');
+                                    }
+                                  }}
+                                  className="p-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => j.id && handleEliminarJugador(j.id, j.nombre)}
+                                  className="p-1.5 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-gray-400 italic">
+                        No hay jugadores registrados en el padrón.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 5️⃣ SECCIÓN: MÓDULO DE DRAFT / SORTEO */}
+        {seccion === 'sorteo' && (
+          <div className="space-y-6">
+            
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-lg font-black uppercase text-gray-900">Módulo de Draft / Sorteo</h2>
+                <p className="text-xs text-gray-500">Asigna jugadores libres de la Bolsa a sus respectivas Selecciones para <strong>{edicionTrabajo?.nombre}</strong>.</p>
+              </div>
+
+              <div className="px-3 py-1.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs font-bold">
+                Bolsa de Libres: {bolsaSorteo.length} Jugadores
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              
+              {/* BOLSA DE JUGADORES */}
+              <div className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-3 md:col-span-1">
+                <h3 className="font-black text-xs uppercase text-red-600 border-b pb-2">Bolsa de Sorteo</h3>
+                
+                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                  {bolsaSorteo.length > 0 ? (
+                    bolsaSorteo.map(j => (
+                      <div key={j.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-gray-900">{j.nombre}</span>
+                          <span className="text-[10px] text-gray-500 font-semibold">{j.disponibilidad || 'Ambos'}</span>
+                        </div>
+
+                        <select
+                          onChange={(e) => {
+                            if (e.target.value && j.id) {
+                              handleAsignarJugador(j.id, e.target.value);
+                            }
+                          }}
+                          defaultValue=""
+                          className="w-full p-2 bg-white border rounded-xl text-[11px] font-bold text-gray-700"
+                        >
+                          <option value="" disabled>Asignar a Equipo...</option>
+                          {equiposEdicion.map(eq => (
+                            <option key={eq.id} value={eq.id}>
+                              {eq.nombre} ({eq.dia_juego})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-gray-400 italic py-6 text-center">¡Bolsa vacía! Todos asignados.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* SELECCIONES Y SUS PLANTELES */}
+              <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {equiposEdicion.map(eq => {
+                  const integrantes = jugadoresEdicion.filter(j => j.id_equipo === eq.id);
+                  return (
+                    <div key={eq.id} className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm flex flex-col justify-between space-y-3">
+                      <div className="flex items-center justify-between border-b pb-2">
+                        <div>
+                          <h4 className="font-black text-sm text-gray-900 uppercase flex items-center gap-1.5">
+                            <Shield className="w-4 h-4 text-red-600" />
+                            {eq.nombre}
+                          </h4>
+                          <span className="text-[10px] text-gray-500 font-bold">
+                            {eq.dia_juego} | Grupo {eq.grupo || 'A'}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => eq.id && handleEliminarEquipo(eq.id, eq.nombre)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1.5 min-h-[100px]">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">Plantel ({integrantes.length})</span>
+                        {integrantes.length > 0 ? (
+                          integrantes.map(j => (
+                            <div key={j.id} className="flex justify-between items-center bg-gray-50 p-2 rounded-xl text-xs font-bold text-gray-800">
+                              <span>{j.nombre}</span>
+                              <button
+                                onClick={() => j.id && handleDevolverABolsa(j.id)}
+                                className="text-red-500 hover:text-red-700 text-[10px] font-black uppercase cursor-pointer"
+                              >
+                                Liberar
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-gray-400 italic py-4">Sin jugadores asignados.</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+            </div>
+
+          </div>
+        )}
+
+        {/* 6️⃣ SECCIÓN: PARTIDOS & MARCADORES */}
+        {seccion === 'fixture' && (
+          <div className="space-y-6">
+            
+            {/* PROGRAMAR PARTIDO */}
+            <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm space-y-4">
+              <h2 className="text-base font-black uppercase text-gray-900">Programar Partido ({edicionTrabajo?.nombre})</h2>
+              
+              <form onSubmit={handleCrearPartido} className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <label className="font-bold text-gray-700">Equipo Local</label>
+                  <select
+                    value={idLocalPartido}
+                    onChange={e => setIdLocalPartido(e.target.value)}
+                    className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold"
+                    required
+                  >
+                    <option value="">Seleccionar Local...</option>
+                    {equiposEdicion.map(eq => (
+                      <option key={eq.id} value={eq.id}>{eq.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-gray-700">Equipo Visitante</label>
+                  <select
+                    value={idVisitantePartido}
+                    onChange={e => setIdVisitantePartido(e.target.value)}
+                    className="w-full mt-1 p-2.5 bg-gray-50 border rounded-xl font-bold"
+                    required
+                  >
+                    <option value="">Seleccionar Visitante...</option>
+                    {equiposEdicion.map(eq => (
+                      <option key={eq.id} value={eq.id}>{eq.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-bold text-gray-700">Día y Fase</label>
+                  <div className="flex gap-1 mt-1">
+                    <select
+                      value={diaPartido}
+                      onChange={e => setDiaPartido(e.target.value as DiaJuego)}
+                      className="p-2.5 bg-gray-50 border rounded-xl font-bold flex-1"
+                    >
+                      <option value="Sábado">Sábado</option>
+                      <option value="Domingo">Domingo</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={fasePartido}
+                      onChange={e => setFasePartido(e.target.value)}
+                      placeholder="Ej. Grupo A"
+                      className="p-2.5 bg-gray-50 border rounded-xl font-bold flex-1"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black uppercase transition-all shadow-md"
+                  >
+                    Crear Partido
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* LISTA DE PARTIDOS Y CARGA DE MARCADORES */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {partidosEdicion.map(p => (
+                <div key={p.id} className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-4">
+                  <div className="flex justify-between items-center text-xs border-b pb-2">
+                    <span className="font-black text-red-600 uppercase">{p.fase || 'Fase de Grupos'}</span>
+                    <span className="font-bold text-gray-500">{p.dia_juego} | Status: {p.estado}</span>
+                  </div>
+
+                  <div className="grid grid-cols-7 items-center text-center">
+                    <span className="col-span-2 font-black text-xs text-gray-900 truncate">{p.nombre_local}</span>
+
+                    <div className="col-span-3 flex items-center justify-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        defaultValue={p.goles_local}
+                        onChange={e => p.id && setGolesLocalEdit({ ...golesLocalEdit, [p.id]: Number(e.target.value) })}
+                        className="w-12 text-center p-2 bg-gray-50 border rounded-xl font-black text-sm"
+                      />
+                      <span className="font-black text-gray-400 text-xs">-</span>
+                      <input
+                        type="number"
+                        min="0"
+                        defaultValue={p.goles_visitante}
+                        onChange={e => p.id && setGolesVisitanteEdit({ ...golesVisitanteEdit, [p.id]: Number(e.target.value) })}
+                        className="w-12 text-center p-2 bg-gray-50 border rounded-xl font-black text-sm"
+                      />
+                    </div>
+
+                    <span className="col-span-2 font-black text-xs text-gray-900 truncate">{p.nombre_visitante}</span>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2 border-t">
+                    <button
+                      onClick={() => handleGuardarResultadoPartido(p)}
+                      className="px-3 py-1.5 bg-black hover:bg-gray-900 text-white rounded-xl text-xs font-black uppercase transition-all"
+                    >
+                      Guardar Marcador
+                    </button>
+                    {p.id && (
+                      <button
+                        onClick={() => handleEliminarPartido(p.id!)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-xl"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        )}
+
+      </main>
 
     </div>
   );

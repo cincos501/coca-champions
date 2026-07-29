@@ -3,174 +3,198 @@ import { db } from '../firebase';
 import { 
   collection, 
   addDoc, 
-  getDocs, 
-  query, 
-  where, 
-  writeBatch, 
-  doc, 
-  deleteDoc, 
   updateDoc, 
-  setDoc, // 👈 Obligatorio para fusionar datos de documentos existentes de forma segura
-  onSnapshot,
-  increment 
+  deleteDoc, 
+  doc, 
+  onSnapshot, 
+  query
 } from 'firebase/firestore';
-import type { Jugador, Equipo, Partido, Grupo } from '../types/futbol.types';
+import type { Equipo, Jugador, Partido, EdicionConfig, DiaDisponibilidad } from '../types/futbol.types';
 
-const equiposRef = collection(db, 'equipos');
-const jugadoresRef = collection(db, 'jugadores');
-const partidosRef = collection(db, 'partidos');
+const COLECCION_EQUIPOS = 'equipos';
+const COLECCION_JUGADORES = 'jugadores';
+const COLECCION_PARTIDOS = 'partidos';
+const COLECCION_EDICIONES = 'ediciones';
 
-export const FutbolService = {
-  /* ==========================================================================
-     MÓDULO DE EQUIPOS E HINCHADA
-     ========================================================================== */
+// Helper para limpiar valores undefined antes de enviar a Firestore
+function limpiarDatos<T extends object>(data: T): T {
+  return JSON.parse(JSON.stringify(data));
+}
 
-  async crearEquipo(equipo: Equipo): Promise<string> {
-    // Inicializamos el contador de hinchada en 0 al crear el equipo
-    const docRef = await addDoc(equiposRef, { ...equipo, votos_hinchada: 0 });
-    return docRef.id;
-  },
+// ==========================================
+// 1. SERVICIO PRINCIPAL DEL TORNEO (FutbolService)
+// ==========================================
+export class FutbolService {
 
-  async obtenerEquipos(): Promise<Equipo[]> {
-    const snapshot = await getDocs(equiposRef);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Equipo));
-  },
-
-  escucharEquipos(callback: (equipos: Equipo[]) => void) {
-    return onSnapshot(equiposRef, (snapshot) => {
-      const lista = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Equipo));
-      callback(lista);
+  // LISTENERS EN TIEMPO REAL CON MANEJO DE ERRORES
+  static escucharEquipos(callback: (equipos: Equipo[]) => void, onError?: (err: Error) => void) {
+    const q = query(collection(db, COLECCION_EQUIPOS));
+    return onSnapshot(q, (snapshot) => {
+      const equipos = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Equipo[];
+      callback(equipos);
+    }, (error) => {
+      console.error("Error al escuchar equipos:", error);
+      if (onError) onError(error);
+      callback([]);
     });
-  },
-
-  async eliminarEquipo(idEquipo: string): Promise<void> {
-    const equipoDoc = doc(db, 'equipos', idEquipo);
-    await deleteDoc(equipoDoc);
-
-    const jugadoresSnap = await getDocs(query(jugadoresRef, where('id_equipo', '==', idEquipo)));
-    const batch = writeBatch(db);
-    jugadoresSnap.forEach((doc) => { batch.delete(doc.ref); });
-    await batch.commit();
-  },
-
-  async votarPorHinchada(idEquipo: string): Promise<void> {
-    if (!idEquipo) throw new Error("ID de equipo no suministrado.");
-    const equipoDoc = doc(db, 'equipos', idEquipo);
-    // setDoc con merge previene errores si el campo votos_hinchada no existía
-    await setDoc(equipoDoc, {
-      votos_hinchada: increment(1)
-    }, { merge: true });
-  },
-
-  /* ==========================================================================
-     MÓDULO DE JUGADORES
-     ========================================================================== */
-
-  async registrarJugador(jugador: Jugador): Promise<{ exito: boolean; mensaje: string }> {
-    const q = query(jugadoresRef, where('id_equipo', '==', jugador.id_equipo));
-    const snapshot = await getDocs(q);
-
-    if (snapshot.size >= 6) {
-      return { exito: false, mensaje: 'El equipo ya cuenta con el máximo de 6 jugadores.' };
-    }
-
-    await addDoc(jugadoresRef, jugador);
-    return { exito: true, mensaje: 'Jugador registrado exitosamente.' };
-  },
-
-  async obtenerJugadores(): Promise<Jugador[]> {
-    const snapshot = await getDocs(jugadoresRef);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Jugador));
-  },
-
-  escucharJugadores(callback: (jugadores: Jugador[]) => void) {
-    return onSnapshot(jugadoresRef, (snapshot) => {
-      const lista = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Jugador));
-      callback(lista);
-    });
-  },
-
-  async eliminarJugador(idJugador: string): Promise<void> {
-    const jugadorDoc = doc(db, 'jugadores', idJugador);
-    await deleteDoc(jugadorDoc);
-  },
-
-  /* ==========================================================================
-     MÓDULO: GESTIÓN DE GRUPOS, FIXTURE Y QUINIELA
-     ========================================================================== */
-
-  async asignarGrupoAEquipo(idEquipo: string, grupo: Grupo | null): Promise<void> {
-    const equipoDoc = doc(db, 'equipos', idEquipo);
-    await updateDoc(equipoDoc, { grupo });
-  },
-
-  async programarPartido(partido: Omit<Partido, 'id'>): Promise<string> {
-    const docRef = await addDoc(partidosRef, {
-      ...partido,
-      votos_local: 0,
-      votos_empate: 0,
-      votos_visitante: 0
-    });
-    return docRef.id;
-  },
-
-  async votarEnQuiniela(idPartido: string, opcion: 'local' | 'empate' | 'visitante'): Promise<void> {
-    if (!idPartido) throw new Error("ID de partido no suministrado.");
-    const partidoDoc = doc(db, 'partidos', idPartido);
-    const campo = opcion === 'local' ? 'votos_local' : opcion === 'empate' ? 'votos_empate' : 'votos_visitante';
-    
-    await setDoc(partidoDoc, {
-      [campo]: increment(1)
-    }, { merge: true });
-  },
-
-  // 🔄 NUEVO MÉTODO: Permite restar el error anterior y sumar a la nueva opción en un paso atómico
-  async cambiarPronosticoPartido(
-    idPartido: string, 
-    opcionVieja: 'local' | 'empate' | 'visitante', 
-    opcionNueva: 'local' | 'empate' | 'visitante'
-  ): Promise<void> {
-    if (!idPartido) throw new Error("ID de partido no suministrado.");
-    const partidoDoc = doc(db, 'partidos', idPartido);
-    
-    const campoRestar = opcionVieja === 'local' ? 'votos_local' : opcionVieja === 'empate' ? 'votos_empate' : 'votos_visitante';
-    const campoSumar = opcionNueva === 'local' ? 'votos_local' : opcionNueva === 'empate' ? 'votos_empate' : 'votos_visitante';
-    
-    await setDoc(partidoDoc, {
-      [campoRestar]: increment(-1),
-      [campoSumar]: increment(1)
-    }, { merge: true });
-  },
-
-  async actualizarResultadoPartido(idPartido: string, golesLocal: number, golesVisitante: number): Promise<void> {
-    const partidoDoc = doc(db, 'partidos', idPartido);
-    await updateDoc(partidoDoc, {
-      goles_local: golesLocal,
-      goles_visitante: golesVisitante,
-      estado: 'jugado'
-    });
-  },
-
-  async eliminarPartido(idPartido: string): Promise<void> {
-    const partidoDoc = doc(db, 'partidos', idPartido);
-    await deleteDoc(partidoDoc);
-  },
-
-  escucharPartidos(callback: (partidos: Partido[]) => void) {
-    return onSnapshot(partidosRef, (snapshot) => {
-      const lista = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Partido));
-      callback(lista);
-    });
-  },
-
-  /* ==========================================================================
-     ENLACES DIRECTOS PARA COMPONENTES (RESOLUCIÓN DE ERRORES EN CONSOLA)
-     ========================================================================== */
-  async registrarPronosticoPartido(idPartido: string, opcion: 'local' | 'empate' | 'visitante'): Promise<void> {
-    return this.votarEnQuiniela(idPartido, opcion);
-  },
-
-  async votarHinchadaEquipo(idEquipo: string): Promise<void> {
-    return this.votarPorHinchada(idEquipo);
   }
-};
+
+  static escucharJugadores(callback: (jugadores: Jugador[]) => void, onError?: (err: Error) => void) {
+    const q = query(collection(db, COLECCION_JUGADORES));
+    return onSnapshot(q, (snapshot) => {
+      const jugadores = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Jugador[];
+      callback(jugadores);
+    }, (error) => {
+      console.error("Error al escuchar jugadores:", error);
+      if (onError) onError(error);
+      callback([]);
+    });
+  }
+
+  static escucharPartidos(callback: (partidos: Partido[]) => void, onError?: (err: Error) => void) {
+    const q = query(collection(db, COLECCION_PARTIDOS));
+    return onSnapshot(q, (snapshot) => {
+      const partidos = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Partido[];
+      callback(partidos);
+    }, (error) => {
+      console.error("Error al escuchar partidos:", error);
+      if (onError) onError(error);
+      callback([]);
+    });
+  }
+
+  // GESTIÓN DE JUGADORES
+  static async registrarJugador(jugador: Omit<Jugador, 'id'>) {
+    const payload = limpiarDatos({
+      ...jugador,
+      disponibilidad: jugador.disponibilidad ?? 'Ambos',
+      id_equipo: jugador.id_equipo ?? ''
+    });
+    return await addDoc(collection(db, COLECCION_JUGADORES), payload);
+  }
+
+  static async actualizarJugador(id: string, datos: Partial<Jugador>) {
+    const docRef = doc(db, COLECCION_JUGADORES, id);
+    return await updateDoc(docRef, limpiarDatos(datos));
+  }
+
+  static async eliminarJugador(id: string) {
+    const docRef = doc(db, COLECCION_JUGADORES, id);
+    return await deleteDoc(docRef);
+  }
+
+  static async importarJugadorAEdicionActual(
+    jugadorOrigen: Jugador, 
+    nuevaDisponibilidad: DiaDisponibilidad, 
+    edicionDestinoId: string
+  ) {
+    return await this.registrarJugador({
+      nombre: jugadorOrigen.nombre,
+      id_equipo: '', // Ingresa libre a la bolsa de sorteo
+      disponibilidad: nuevaDisponibilidad,
+      edicion_id: edicionDestinoId
+    });
+  }
+
+  // GESTIÓN DE EQUIPOS / SELECCIONES
+  static async crearEquipo(equipo: Omit<Equipo, 'id'>) {
+    const payload = limpiarDatos({
+      ...equipo,
+      puntos: 0,
+      partidos_jugados: 0,
+      partidos_ganados: 0,
+      partidos_empatados: 0,
+      partidos_perdidos: 0,
+      goles_favor: 0,
+      goles_contra: 0,
+      diferencia_goles: 0
+    });
+    return await addDoc(collection(db, COLECCION_EQUIPOS), payload);
+  }
+
+  static async actualizarEquipo(id: string, datos: Partial<Equipo>) {
+    const docRef = doc(db, COLECCION_EQUIPOS, id);
+    return await updateDoc(docRef, limpiarDatos(datos));
+  }
+
+  static async eliminarEquipo(id: string) {
+    const docRef = doc(db, COLECCION_EQUIPOS, id);
+    return await deleteDoc(docRef);
+  }
+
+  // GESTIÓN DE PARTIDOS Y FIXTURE
+  static async crearPartido(partido: Omit<Partido, 'id'>) {
+    const payload = limpiarDatos({
+      ...partido,
+      goles_local: partido.goles_local ?? 0,
+      goles_visitante: partido.goles_visitante ?? 0,
+      estado: partido.estado ?? 'programado',
+      fecha_creacion: new Date().toISOString()
+    });
+    return await addDoc(collection(db, COLECCION_PARTIDOS), payload);
+  }
+
+  static async actualizarPartido(id: string, datos: Partial<Partido>) {
+    const docRef = doc(db, COLECCION_PARTIDOS, id);
+    return await updateDoc(docRef, limpiarDatos(datos));
+  }
+
+  static async eliminarPartido(id: string) {
+    const docRef = doc(db, COLECCION_PARTIDOS, id);
+    return await deleteDoc(docRef);
+  }
+}
+
+// ==========================================
+// 2. SERVICIO DE EDICIONES (EdicionesService)
+// ==========================================
+export class EdicionesService {
+  
+  static escucharEdiciones(callback: (ediciones: EdicionConfig[]) => void, onError?: (err: Error) => void) {
+    const q = query(collection(db, COLECCION_EDICIONES));
+    return onSnapshot(q, (snapshot) => {
+      const ediciones = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as EdicionConfig[];
+      callback(ediciones);
+    }, (error) => {
+      console.error("Error al escuchar ediciones:", error);
+      if (onError) onError(error);
+      callback([]);
+    });
+  }
+
+  static async crearEdicion(edicion: Omit<EdicionConfig, 'id'>) {
+    const payload = limpiarDatos(edicion);
+    return await addDoc(collection(db, COLECCION_EDICIONES), payload);
+  }
+
+  static async actualizarEdicion(id: string, datos: Partial<EdicionConfig>) {
+    const docRef = doc(db, COLECCION_EDICIONES, id);
+    return await updateDoc(docRef, limpiarDatos(datos));
+  }
+
+  static async eliminarEdicion(id: string) {
+    const docRef = doc(db, COLECCION_EDICIONES, id);
+    return await deleteDoc(docRef);
+  }
+
+  static async activarEdicion(idEdicionActivar: string, todasLasEdiciones: EdicionConfig[]) {
+    for (const ed of todasLasEdiciones) {
+      if (ed.id) {
+        const docRef = doc(db, COLECCION_EDICIONES, ed.id);
+        await updateDoc(docRef, { activa: ed.id === idEdicionActivar });
+      }
+    }
+  }
+}

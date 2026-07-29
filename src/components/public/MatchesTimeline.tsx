@@ -1,5 +1,5 @@
 // src/components/public/MatchesTimeline.tsx
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Trophy, CheckCircle2 } from 'lucide-react';
 import { FutbolService } from '../../services/futbol.service';
 import type { Partido } from '../../types/futbol.types';
@@ -11,17 +11,16 @@ interface MatchesTimelineProps {
 type VotoQuiniela = 'local' | 'empate' | 'visitante';
 
 export default function MatchesTimeline({ partidos }: MatchesTimelineProps) {
-  const [misVotos, setMisVotos] = useState<{ [key: string]: VotoQuiniela }>({});
-
-  // Cargar las votaciones previas guardadas en este dispositivo al entrar
-  useEffect(() => {
+  const [misVotos, setMisVotos] = useState<{ [key: string]: VotoQuiniela }>(() => {
     const votosCargados: { [key: string]: VotoQuiniela } = {};
     partidos.forEach(p => {
-      const v = localStorage.getItem(`quiniela_${p.id}`) as VotoQuiniela | null;
-      if (v) votosCargados[p.id!] = v;
+      if (p.id) {
+        const v = localStorage.getItem(`quiniela_${p.id}`) as VotoQuiniela | null;
+        if (v) votosCargados[p.id] = v;
+      }
     });
-    setMisVotos(votosCargados);
-  }, [partidos]);
+    return votosCargados;
+  });
 
   const handleVotarQuiniela = async (idPartido: string, seleccion: VotoQuiniela) => {
     const votoAnterior = misVotos[idPartido];

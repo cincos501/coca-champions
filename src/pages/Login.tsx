@@ -21,11 +21,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     try {
       await AuthService.login(email, password);
       onLoginSuccess();
-    } catch (err: any) {
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found') {
+    } catch (err: unknown) {
+      const authError = err as { code?: string };
+      if (authError.code === 'auth/invalid-credential' || authError.code === 'auth/user-not-found') {
         setError('Acceso denegación: Credenciales incorrectas.');
       } else {
-        setError('Error de conexión con los servidores de Coca-Cola.');
+        setError('Error de conexión con los servidores de CocaChampions.');
       }
     } finally {
       setLoading(false);
