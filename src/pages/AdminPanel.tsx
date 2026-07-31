@@ -49,6 +49,9 @@ export default function AdminPanel() {
   const [diaEquipo, setDiaEquipo] = useState<DiaJuego>('Sábado');
   const [grupoEquipo, setGrupoEquipo] = useState<Grupo>('A');
 
+  // === DRAFT / SORTEO RÁPIDO ===
+  const [busquedaBolsaDraft, setBusquedaBolsaDraft] = useState('');
+
   // === PADRÓN OFICIAL BÚSQUEDA Y EDICIÓN ===
   const [busquedaPadron, setBusquedaPadron] = useState('');
   const [idJugadorEditando, setIdJugadorEditando] = useState<string | null>(null);
@@ -135,6 +138,27 @@ export default function AdminPanel() {
   const bolsaSorteo = useMemo(() => {
     return jugadoresEdicion.filter(j => !j.id_equipo || j.id_equipo.trim() === '');
   }, [jugadoresEdicion]);
+
+  const bolsaSorteoFiltrada = useMemo(() => {
+    if (!busquedaBolsaDraft.trim()) return bolsaSorteo;
+    return bolsaSorteo.filter(j => j.nombre.toLowerCase().includes(busquedaBolsaDraft.toLowerCase()));
+  }, [bolsaSorteo, busquedaBolsaDraft]);
+
+  // Calcula automáticamente la selección con menos integrantes para agilizar la ronda del sorteo en vivo
+  const proximoEquipoSorteo = useMemo(() => {
+    if (!equiposEdicion || equiposEdicion.length === 0) return null;
+    let minCant = Infinity;
+    let targetEq: Equipo = equiposEdicion[0];
+
+    equiposEdicion.forEach(eq => {
+      const cant = jugadoresEdicion.filter(j => j.id_equipo === eq.id).length;
+      if (cant < minCant) {
+        minCant = cant;
+        targetEq = eq;
+      }
+    });
+    return { equipo: targetEq, cantidad: minCant };
+  }, [equiposEdicion, jugadoresEdicion]);
 
   // 1️⃣ HANDLERS DE EDICIONES
   const handleCrearOActualizarEdicion = async (e: React.FormEvent) => {
@@ -1013,29 +1037,62 @@ service cloud.firestore {
             
             <div className="bg-white p-6 rounded-3xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
-                <h2 className="text-lg font-black uppercase text-gray-900">Módulo de Draft / Sorteo</h2>
-                <p className="text-xs text-gray-500">Asigna jugadores libres de la Bolsa a sus respectivas Selecciones para <strong>{edicionTrabajo?.nombre}</strong>.</p>
+                <h2 className="text-lg font-black uppercase text-gray-900">Módulo de Draft / Sorteo en Vivo</h2>
+                <p className="text-xs text-gray-500">Asigna jugadores de la Bolsa a sus Selecciones. La vista pública se actualiza automáticamente en tiempo real.</p>
               </div>
 
-              <div className="px-3 py-1.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs font-bold">
-                Bolsa de Libres: {bolsaSorteo.length} Jugadores
+              <div className="flex items-center gap-2">
+                {proximoEquipoSorteo && proximoEquipoSorteo.equipo && (
+                  <div className="px-3 py-1.5 bg-red-50 rounded-xl border border-red-200 text-red-700 text-xs font-bold flex items-center gap-1.5">
+                    <Shuffle className="w-3.5 h-3.5 text-red-600 animate-spin" />
+                    <span>Próximo en Ronda: <strong>{proximoEquipoSorteo.equipo.nombre}</strong> ({proximoEquipoSorteo.cantidad}/6)</span>
+                  </div>
+                )}
+                <div className="px-3 py-1.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs font-bold">
+                  Bolsa: {bolsaSorteo.length} Jugadores
+                </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
-              {/* BOLSA DE JUGADORES */}
+              {/* BOLSA DE JUGADORES CON BÚSQUEDA Y ASIGNACIÓN RÁPIDA DE 1 CLIC */}
               <div className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-3 md:col-span-1">
-                <h3 className="font-black text-xs uppercase text-red-600 border-b pb-2">Bolsa de Sorteo</h3>
+                <div className="flex justify-between items-center border-b pb-2">
+                  <h3 className="font-black text-xs uppercase text-red-600">Bolsa de Sorteo</h3>
+                  <span className="text-[10px] text-gray-400 font-bold">{bolsaSorteoFiltrada.length} de {bolsaSorteo.length}</span>
+                </div>
+
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={busquedaBolsaDraft}
+                    onChange={e => setBusquedaBolsaDraft(e.target.value)}
+                    placeholder="Buscar jugador drafteado..."
+                    className="w-full pl-8 pr-3 py-2 bg-gray-50 border rounded-xl text-xs font-bold focus:outline-none focus:border-red-500"
+                  />
+                </div>
                 
                 <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-                  {bolsaSorteo.length > 0 ? (
-                    bolsaSorteo.map(j => (
-                      <div key={j.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
+                  {bolsaSorteoFiltrada.length > 0 ? (
+                    bolsaSorteoFiltrada.map(j => (
+                      <div key={j.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-200 space-y-2 hover:border-red-300 transition-all">
                         <div className="flex justify-between items-center text-xs">
                           <span className="font-bold text-gray-900">{j.nombre}</span>
                           <span className="text-[10px] text-gray-500 font-semibold">{j.disponibilidad || 'Ambos'}</span>
                         </div>
+
+                        {/* BOTÓN RÁPIDO DE 1 CLIC AL PRÓXIMO EQUIPO */}
+                        {proximoEquipoSorteo && proximoEquipoSorteo.equipo && j.id && (
+                          <button
+                            type="button"
+                            onClick={() => handleAsignarJugador(j.id!, proximoEquipoSorteo.equipo.id!)}
+                            className="w-full py-1.5 px-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-sm flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <span>⚡ Asignar a {proximoEquipoSorteo.equipo.nombre}</span>
+                          </button>
+                        )}
 
                         <select
                           onChange={(e) => {
@@ -1044,9 +1101,9 @@ service cloud.firestore {
                             }
                           }}
                           defaultValue=""
-                          className="w-full p-2 bg-white border rounded-xl text-[11px] font-bold text-gray-700"
+                          className="w-full p-1.5 bg-white border rounded-xl text-[10px] font-bold text-gray-600"
                         >
-                          <option value="" disabled>Asignar a Equipo...</option>
+                          <option value="" disabled>O elegir otro equipo manualmente...</option>
                           {equiposEdicion.map(eq => (
                             <option key={eq.id} value={eq.id}>
                               {eq.nombre} ({eq.dia_juego})
@@ -1056,7 +1113,9 @@ service cloud.firestore {
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-gray-400 italic py-6 text-center">¡Bolsa vacía! Todos asignados.</p>
+                    <p className="text-xs text-gray-400 italic py-6 text-center">
+                      {busquedaBolsaDraft ? 'Sin resultados para el filtro' : '¡Bolsa vacía! Todos asignados.'}
+                    </p>
                   )}
                 </div>
               </div>

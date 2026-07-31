@@ -5,10 +5,10 @@ import type { Equipo, Jugador, Partido, EdicionConfig } from '../types/futbol.ty
 import {
   Trophy, Calendar, MapPin, DollarSign, Award, Shield,
   ChevronLeft, ChevronRight, CheckCircle2, Clock,
-  Users, Map as MapIcon, Sparkles, Search
+  Users, Map as MapIcon, Sparkles, Search, Shuffle
 } from 'lucide-react';
 
-type SeccionPublica = 'resumen' | 'inscritos' | 'fixture' | 'galeria' | 'sede';
+type SeccionPublica = 'resumen' | 'sorteo' | 'inscritos' | 'fixture' | 'galeria' | 'sede';
 
 export default function PublicView() {
   // === ESTADOS FIREBASE Y EDICIÓN ===
@@ -20,7 +20,7 @@ export default function PublicView() {
 
   // Filtros de navegación pública
   const [diaFiltroFixture, setDiaFiltroFixture] = useState<'Todos' | 'Sábado' | 'Domingo'>('Todos');
-  const [tabActiva, setTabActiva] = useState<SeccionPublica>('resumen');
+  const [tabActiva, setTabActiva] = useState<SeccionPublica>('sorteo'); // Pestaña predeterminada sorteo si hay sorteo activo
 
   // Filtros de Búsqueda de Inscritos
   const [busquedaInscrito, setBusquedaInscrito] = useState<string>('');
@@ -111,6 +111,20 @@ export default function PublicView() {
     return partidos.filter(p => p.edicion_id === edicionId);
   }, [partidos, edicionId]);
 
+  // CÁLCULOS DEL SORTEO EN TIEMPO REAL
+  const bolsaSorteoPublica = useMemo(() => {
+    return jugadoresEdicion.filter(j => !j.id_equipo);
+  }, [jugadoresEdicion]);
+
+  const jugadoresAsignadosCount = useMemo(() => {
+    return jugadoresEdicion.filter(j => !!j.id_equipo).length;
+  }, [jugadoresEdicion]);
+
+  const porcentajeDraft = useMemo(() => {
+    if (jugadoresEdicion.length === 0) return 0;
+    return Math.round((jugadoresAsignadosCount / jugadoresEdicion.length) * 100);
+  }, [jugadoresAsignadosCount, jugadoresEdicion]);
+
   // FILTRADO DE JUGADORES INSCRITOS PARA VERIFICACIÓN DE PARTICIPANTES
   const jugadoresInscritosFiltrados = useMemo(() => {
     return jugadoresEdicion.filter(j => {
@@ -197,9 +211,9 @@ service cloud.firestore {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 relative z-10">
           <div className="flex flex-col items-center text-center space-y-4">
 
-            {/* Badge Edición */}
+            {/* Badge Edición & Sorteo Live */}
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-black uppercase tracking-wider">
-              <Sparkles className="w-4 h-4 text-red-400 animate-spin" />
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
               <span>{edicionActiva.nombre || 'Edición Activa'} (Edición #{edicionActiva.numero})</span>
             </div>
 
@@ -208,14 +222,14 @@ service cloud.firestore {
             </h1>
 
             <p className="text-sm sm:text-base text-slate-300 max-w-2xl font-medium">
-              El torneo oficial de mayor nivel. Consulta la lista de inscritos, la agenda, el fixture y las reglas de oro en tiempo real.
+              Sigue el sorteo en tiempo real, consulta la lista de inscritos, el fixture y las reglas del torneo.
             </p>
 
-            {/* IMAGEN DE BANNER OFICIAL */}
+            {/* BANNER REPRODUCTOR O IMAGEN */}
             <div className="w-full max-w-4xl rounded-3xl overflow-hidden border border-slate-800 shadow-2xl my-4 aspect-[21/9] relative">
-              <img
-                src="/banner-vii.jpeg"
-                alt="Banner VII Edición CocaChampions"
+              <img 
+                src="/banner-vii.jpeg" 
+                alt="Banner VII Edición CocaChampions" 
                 className="w-full h-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-60" />
@@ -226,7 +240,7 @@ service cloud.firestore {
               <div className="bg-slate-900/80 backdrop-blur border border-slate-800 p-4 rounded-2xl flex flex-col items-center justify-center">
                 <Calendar className="w-5 h-5 text-red-500 mb-1" />
                 <span className="text-[10px] uppercase font-bold text-slate-400">Sorteo</span>
-                <span className="text-xs font-black text-white mt-0.5">{edicionActiva.fecha_sorteo || 'Por definir'}</span>
+                <span className="text-xs font-black text-white mt-0.5">{edicionActiva.fecha_sorteo || 'HOY EN VIVO'}</span>
               </div>
 
               <div className="bg-slate-900/80 backdrop-blur border border-slate-800 p-4 rounded-2xl flex flex-col items-center justify-center">
@@ -251,13 +265,14 @@ service cloud.firestore {
           </div>
         </div>
 
-        {/* NAVEGACIÓN PESTAÑAS */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-20 pointer-events-auto">
-          <div className="flex items-center justify-center gap-2 overflow-x-auto pb-4 scrollbar-none">
+        {/* NAVEGACIÓN PESTAÑAS (CORREGIDO PARA EVITAR RECORTES EN PANTALLAS PEQUEÑAS) */}
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 relative z-20 pointer-events-auto overflow-hidden">
+          <div className="flex items-center justify-start sm:justify-center gap-2 overflow-x-auto pb-4 pt-1 px-2 scrollbar-none w-full">
             {(
               [
-                { id: 'resumen', label: 'Información & Reglas', icon: Shield },
+                { id: 'sorteo', label: 'Sorteo en Vivo 🎲', icon: Shuffle },
                 { id: 'inscritos', label: 'Jugadores Inscritos', icon: Users },
+                { id: 'resumen', label: 'Información & Reglas', icon: Shield },
                 { id: 'fixture', label: 'Fixture & Resultados', icon: Calendar },
                 { id: 'galeria', label: 'Galería de Fotos', icon: Sparkles },
                 { id: 'sede', label: 'Ubicación & Sede', icon: MapIcon }
@@ -274,10 +289,11 @@ service cloud.firestore {
                     e.stopPropagation();
                     cambiarTab(tab.id);
                   }}
-                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer relative z-30 pointer-events-auto active:scale-95 ${activo
+                  className={`flex items-center gap-2 px-4 sm:px-5 py-3 rounded-2xl text-xs font-black uppercase whitespace-nowrap transition-all cursor-pointer relative z-30 pointer-events-auto active:scale-95 shrink-0 ${
+                    activo
                       ? 'bg-red-600 text-white shadow-xl shadow-red-600/40 ring-2 ring-red-400'
                       : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
-                    }`}
+                  }`}
                 >
                   <IconComp className="w-4 h-4" />
                   <span>{tab.label}</span>
@@ -290,6 +306,156 @@ service cloud.firestore {
 
       {/* 🚀 CONTENIDO DE SECCIONES */}
       <main ref={seccionContenidoRef} className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+
+        {/* 🎲 SECCIÓN: SORTEO EN VIVO EN TIEMPO REAL */}
+        {tabActiva === 'sorteo' && (
+          <div className="space-y-6">
+
+            {/* HEADER EN VIVO */}
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-red-950 via-slate-900 to-slate-900 p-6 rounded-3xl border border-red-900/50 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-red-600/10 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="relative z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-600/30 border border-red-500/40 text-red-300 text-xs font-black uppercase tracking-wider mb-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                  <span>Sorteo & Draft en Tiempo Real</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-black uppercase text-white tracking-tight flex items-center gap-2.5">
+                  <Shuffle className="w-7 h-7 text-red-500 animate-pulse" />
+                  <span>Armado de Selecciones</span>
+                </h2>
+                <p className="text-xs text-slate-300 mt-1 max-w-xl">
+                  Transmisión oficial de asignaciones para la <strong className="text-white">{edicionActiva.nombre}</strong>. Los jugadores se asignan ronda por ronda a cada equipo.
+                </p>
+              </div>
+
+              {/* STATS DEL SORTEO */}
+              <div className="flex items-center gap-3 relative z-10 w-full md:w-auto">
+                <div className="bg-slate-950/80 backdrop-blur border border-slate-800 p-3.5 rounded-2xl text-center flex-1 md:flex-none">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Asignados</span>
+                  <span className="text-lg font-black text-emerald-400">{jugadoresAsignadosCount} / {jugadoresEdicion.length}</span>
+                </div>
+
+                <div className="bg-slate-950/80 backdrop-blur border border-slate-800 p-3.5 rounded-2xl text-center flex-1 md:flex-none">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">En Bolsa</span>
+                  <span className="text-lg font-black text-amber-400">{bolsaSorteoPublica.length}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* BARRA DE PROGRESO GLOBAL DEL DRAFT */}
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-2 shadow-lg">
+              <div className="flex justify-between items-center text-xs font-bold">
+                <span className="text-slate-400 uppercase">Avance del Sorteo</span>
+                <span className="text-red-400 font-black">{porcentajeDraft}% Completado</span>
+              </div>
+              <div className="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                <div 
+                  className="h-full bg-gradient-to-r from-red-600 via-amber-500 to-emerald-500 transition-all duration-500 rounded-full"
+                  style={{ width: `${porcentajeDraft}%` }}
+                />
+              </div>
+            </div>
+
+            {/* TARJETAS DE EQUIPOS CON SUS 6 CUPOS EN TIEMPO REAL */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {equiposEdicion.map(eq => {
+                const integrantes = jugadoresEdicion.filter(j => j.id_equipo === eq.id);
+                const MAX_CUPOS = 6;
+                const cupos = Array.from({ length: MAX_CUPOS }, (_, i) => integrantes[i] || null);
+
+                return (
+                  <div key={eq.id} className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col justify-between space-y-4 relative overflow-hidden">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                      <div>
+                        <h3 className="font-black text-base text-white uppercase flex items-center gap-2">
+                          <Shield className="w-5 h-5 text-red-500" />
+                          <span>{eq.nombre}</span>
+                        </h3>
+                        <span className="text-[10px] font-bold text-slate-400">
+                          {eq.dia_juego} | Grupo {eq.grupo || 'A'}
+                        </span>
+                      </div>
+                      <span className={`text-xs font-black px-2.5 py-1 rounded-full ${
+                        integrantes.length === 6 
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      }`}>
+                        {integrantes.length} / 6 Jugadores
+                      </span>
+                    </div>
+
+                    {/* LISTA DE 6 SLOTS / CUPOS */}
+                    <div className="space-y-2">
+                      {cupos.map((jugador, idx) => (
+                        <div 
+                          key={idx}
+                          className={`p-3 rounded-2xl border text-xs flex items-center justify-between transition-all ${
+                            jugador 
+                              ? 'bg-slate-950 border-slate-700/80 text-white font-bold shadow-sm' 
+                              : 'bg-slate-950/40 border-dashed border-slate-800 text-slate-600 font-medium'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 truncate">
+                            <span className={`w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
+                              jugador ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-500'
+                            }`}>
+                              #{idx + 1}
+                            </span>
+                            {jugador ? (
+                              <span className="truncate text-white font-bold">{jugador.nombre}</span>
+                            ) : (
+                              <span className="italic text-slate-500">Esperando sorteo...</span>
+                            )}
+                          </div>
+
+                          {jugador && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 shrink-0">
+                              {jugador.disponibilidad || 'Ambos'}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* JUGADORES EN BOLSA RESTANTES */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-800 pb-4">
+                <div>
+                  <h3 className="font-black text-base uppercase text-white flex items-center gap-2">
+                    <Users className="w-5 h-5 text-amber-500" />
+                    <span>Jugadores Pendientes en Bolsa ({bolsaSorteoPublica.length})</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">Jugadores inscritos listos para ser asignados en los siguientes giros del sorteo</p>
+                </div>
+              </div>
+
+              {bolsaSorteoPublica.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                  {bolsaSorteoPublica.map(j => (
+                    <div key={j.id} className="p-3 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between text-xs font-bold text-slate-200">
+                      <span className="truncate mr-1">{j.nombre}</span>
+                      <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md shrink-0 border border-amber-500/20">
+                        {j.disponibilidad || 'Ambos'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+                  <p className="font-bold text-white uppercase">¡Sorteo completado con éxito!</p>
+                  <p className="text-slate-500">Todos los jugadores han sido asignados a sus respectivas selecciones.</p>
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
 
         {/* 1️⃣ SECCIÓN: INFORMACIÓN GENERAL Y REGLAS DE ORO */}
         {tabActiva === 'resumen' && (
@@ -433,8 +599,9 @@ service cloud.firestore {
                       key={dia}
                       type="button"
                       onClick={() => setFiltroDiaInscrito(dia)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${filtroDiaInscrito === dia ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
-                        }`}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all cursor-pointer ${
+                        filtroDiaInscrito === dia ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+                      }`}
                     >
                       {dia}
                     </button>
@@ -468,12 +635,13 @@ service cloud.firestore {
                               <span>{j.nombre}</span>
                             </td>
                             <td className="py-3.5 px-4 text-center">
-                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${j.disponibilidad === 'Sábado'
-                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                  : j.disponibilidad === 'Domingo'
-                                    ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                                    : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                }`}>
+                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${
+                                j.disponibilidad === 'Sábado' 
+                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
+                                  : j.disponibilidad === 'Domingo' 
+                                  ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' 
+                                  : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              }`}>
                                 <Clock className="w-3 h-3" />
                                 {j.disponibilidad || 'Ambos Días'}
                               </span>
@@ -540,10 +708,11 @@ service cloud.firestore {
                     key={dia}
                     type="button"
                     onClick={() => setDiaFiltroFixture(dia)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase cursor-pointer transition-all ${diaFiltroFixture === dia
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase cursor-pointer transition-all ${
+                      diaFiltroFixture === dia
                         ? 'bg-red-600 text-white'
                         : 'text-slate-400 hover:text-white'
-                      }`}
+                    }`}
                   >
                     {dia}
                   </button>
@@ -663,8 +832,9 @@ service cloud.firestore {
                 <div
                   key={idx}
                   onClick={() => setIndiceFoto(idx)}
-                  className={`relative rounded-2xl overflow-hidden cursor-pointer border-2 transition-all aspect-video ${indiceFoto === idx ? 'border-red-500 scale-105 shadow-lg shadow-red-500/20' : 'border-slate-800 opacity-60 hover:opacity-100'
-                    }`}
+                  className={`relative rounded-2xl overflow-hidden cursor-pointer border-2 transition-all aspect-video ${
+                    indiceFoto === idx ? 'border-red-500 scale-105 shadow-lg shadow-red-500/20' : 'border-slate-800 opacity-60 hover:opacity-100'
+                  }`}
                 >
                   <img src={foto.url} alt={foto.titulo} className="w-full h-full object-cover" />
                 </div>
