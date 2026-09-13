@@ -2,13 +2,40 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { FutbolService, EdicionesService } from '../services/futbol.service';
 import type { Equipo, Jugador, Partido, EdicionConfig } from '../types/futbol.types';
+import { GOLEADORES_HISTORICOS } from '../data/goleadoresHistoricos';
 import {
   Trophy, Calendar, MapPin, DollarSign, Award, Shield,
   ChevronLeft, ChevronRight, CheckCircle2, Clock,
   Users, Map as MapIcon, Sparkles, Search, Shuffle
 } from 'lucide-react';
 
-type SeccionPublica = 'resumen' | 'sorteo' | 'inscritos' | 'fixture' | 'galeria' | 'sede';
+type SeccionPublica = 'resumen' | 'sorteo' | 'inscritos' | 'fixture' | 'galeria' | 'sede' | 'goleadores';
+
+const EDICION_OCTAVA_DEFAULT: EdicionConfig = {
+  id: 'edicion-8-default',
+  numero: 8,
+  nombre: '🏆 COCACHAMPIONS OCTAVA EDICIÓN 🏆',
+  activa: true,
+  fecha_sorteo: 'Viernes 18 de Septiembre (08:30 PM)',
+  fecha_sabado: 'Sábado 19 de Septiembre (02:30 PM)',
+  fecha_domingo: 'Domingo 20 de Septiembre (08:30 AM)',
+  ubicacion: 'Cancha de Villa Busch',
+  costo_inscripcion: 4,
+  reglas_oro: [
+    'Inscripciones individuales: Costo 4 Bs por persona (pago exclusivo mediante código QR adjunto). Fecha límite: Viernes 18 de Septiembre 07:00 PM.',
+    'Contacto de inscripción: Envía comprobante, nombre completo, disponibilidad y posición al WhatsApp +591 63787755.',
+    'Formato: Equipos 100% aleatorios (máximo 6 jugadores por equipo) sin preferencias para garantizar total paridad.',
+    'Sorteo Sábado / Ambos días: Viernes 18 de Septiembre 08:30 PM en vivo por TikTok SALE FULBO.',
+    'Sorteo Domingo: Sábado 19 de Septiembre a las 08:30 PM.',
+    'Dinámica del Sábado: Si un equipo pierde el sábado, sus integrantes podrán reinscribirse para el domingo en un nuevo sorteo.',
+    'Beneficios: Arbitraje 100% gratuito (sin costo adicional) e indumentaria (ponchillos) provista por los organizadores.',
+    'Transmisión en vivo por TikTok SALE FULBO y resultados en tiempo real por la página web COCACHAMPIONS.'
+  ],
+  premios: {
+    primer_lugar: '1 Coca-Cola de 3 Litros, medallas para cada ganador y certificado oficial de campeón',
+    segundo_lugar: '1 Coca-Cola de 300 ml para cada jugador'
+  }
+};
 
 export default function PublicView() {
   // === ESTADOS FIREBASE Y EDICIÓN ===
@@ -20,10 +47,11 @@ export default function PublicView() {
 
   // Filtros de navegación pública
   const [diaFiltroFixture, setDiaFiltroFixture] = useState<'Todos' | 'Sábado' | 'Domingo'>('Todos');
-  const [tabActiva, setTabActiva] = useState<SeccionPublica>('sorteo'); // Pestaña predeterminada sorteo si hay sorteo activo
+  const [tabActiva, setTabActiva] = useState<SeccionPublica>('goleadores'); // Por defecto destacamos los goleadores e info de la VIII edición
 
-  // Filtros de Búsqueda de Inscritos
+  // Filtros de Búsqueda de Inscritos y Goleadores
   const [busquedaInscrito, setBusquedaInscrito] = useState<string>('');
+  const [busquedaGoleador, setBusquedaGoleador] = useState<string>('');
   const [filtroDiaInscrito, setFiltroDiaInscrito] = useState<'Todos' | 'Sábado' | 'Domingo' | 'Ambos'>('Todos');
 
   // Ref para hacer scroll suave al cambiar pestañas
@@ -87,13 +115,21 @@ export default function PublicView() {
     };
   }, []);
 
-  // EDICIÓN ACTIVA DESDE FIRESTORE
+  // EDICIÓN ACTIVA DESDE FIRESTORE (O FALLBACK OCTAVA EDICIÓN)
   const edicionActiva = useMemo(() => {
-    if (!ediciones || ediciones.length === 0) return null;
-    return ediciones.find(e => e.activa) || ediciones[0];
+    if (!ediciones || ediciones.length === 0) return EDICION_OCTAVA_DEFAULT;
+    return ediciones.find(e => e.activa) || ediciones[0] || EDICION_OCTAVA_DEFAULT;
   }, [ediciones]);
 
   const edicionId = edicionActiva?.id || '';
+
+  // FILTRADO DE GOLEADORES HISTÓRICOS
+  const goleadoresHistoricosFiltrados = useMemo(() => {
+    if (!busquedaGoleador.trim()) return GOLEADORES_HISTORICOS;
+    return GOLEADORES_HISTORICOS.filter(g =>
+      g.nombre.toLowerCase().includes(busquedaGoleador.toLowerCase())
+    );
+  }, [busquedaGoleador]);
 
   // FILTRADO EXCLUSIVO POR EDICIÓN ACTIVA
   const equiposEdicion = useMemo(() => {
@@ -270,6 +306,7 @@ service cloud.firestore {
           <div className="flex items-center justify-start sm:justify-center gap-2 overflow-x-auto pb-4 pt-1 px-2 scrollbar-none w-full">
             {(
               [
+                { id: 'goleadores', label: 'Goleadores ⚽', icon: Trophy },
                 { id: 'sorteo', label: 'Sorteo en Vivo 🎲', icon: Shuffle },
                 { id: 'inscritos', label: 'Jugadores Inscritos', icon: Users },
                 { id: 'resumen', label: 'Información & Reglas', icon: Shield },
@@ -306,6 +343,177 @@ service cloud.firestore {
 
       {/* 🚀 CONTENIDO DE SECCIONES */}
       <main ref={seccionContenidoRef} className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+
+        {/* 🏆 SECCIÓN: TABLA HISTÓRICA DE GOLEADORES */}
+        {tabActiva === 'goleadores' && (
+          <div className="space-y-6">
+
+            {/* HEADER GOLEADORES */}
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-amber-950/60 via-slate-900 to-slate-900 p-6 rounded-3xl border border-amber-900/50 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="relative z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400 text-xs font-black uppercase tracking-wider mb-2">
+                  <Trophy className="w-3.5 h-3.5" />
+                  <span>Histórico Acumulado CocaChampions</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white flex items-center gap-2">
+                  <span>Tabla de Goleadores</span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-1 max-w-xl">
+                  Ranking oficial de máximos artilleros sumando los goles de todas las ediciones del torneo.
+                </p>
+              </div>
+
+              {/* BÚSQUEDA GOLEADORES */}
+              <div className="relative w-full md:w-72 z-10">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={busquedaGoleador}
+                  onChange={e => setBusquedaGoleador(e.target.value)}
+                  placeholder="Buscar goleador por nombre..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-2xl text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-all shadow-inner"
+                />
+              </div>
+            </div>
+
+            {/* TOP 3 PODIO DESTACADO */}
+            {!busquedaGoleador && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                {/* #2 PLATA */}
+                <div className="bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border border-slate-700/60 rounded-3xl p-5 text-center relative overflow-hidden flex flex-col items-center justify-between order-2 md:order-1 shadow-lg">
+                  <div className="w-12 h-12 rounded-full bg-slate-300/10 border border-slate-400/40 flex items-center justify-center text-slate-300 font-black text-xl mb-2 shadow-lg">
+                    🥈
+                  </div>
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Subgoleador Histórico</span>
+                  <h3 className="text-lg font-black text-white mt-1">{GOLEADORES_HISTORICOS[1]?.nombre}</h3>
+                  <div className="mt-3 px-4 py-1.5 rounded-full bg-slate-800 text-slate-200 text-xs font-black border border-slate-700 inline-block">
+                    ⚽ {GOLEADORES_HISTORICOS[1]?.goles} Goles
+                  </div>
+                </div>
+
+                {/* #1 ORO */}
+                <div className="bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 border-2 border-amber-500/60 rounded-3xl p-6 text-center relative overflow-hidden flex flex-col items-center justify-between shadow-2xl shadow-amber-500/10 order-1 md:order-2 scale-105 z-10">
+                  <div className="w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-300 font-black text-2xl mb-2 shadow-xl shadow-amber-500/20">
+                    👑
+                  </div>
+                  <span className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-1 justify-center">
+                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                    Máximo Artillero Leyenda
+                  </span>
+                  <h3 className="text-xl font-black text-white mt-1">{GOLEADORES_HISTORICOS[0]?.nombre}</h3>
+                  <div className="mt-3 px-5 py-2 rounded-full bg-amber-500 text-slate-950 text-sm font-black shadow-lg shadow-amber-500/30 inline-block">
+                    ⚽ {GOLEADORES_HISTORICOS[0]?.goles} Goles Acumulados
+                  </div>
+                </div>
+
+                {/* #3 BRONCE */}
+                <div className="bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border border-amber-900/40 rounded-3xl p-5 text-center relative overflow-hidden flex flex-col items-center justify-between order-3 shadow-lg">
+                  <div className="w-12 h-12 rounded-full bg-amber-900/20 border border-amber-700/40 flex items-center justify-center text-amber-600 font-black text-xl mb-2 shadow-lg">
+                    🥉
+                  </div>
+                  <span className="text-[10px] font-black uppercase text-amber-600 tracking-wider">Tercer Lugar Histórico</span>
+                  <h3 className="text-lg font-black text-white mt-1">{GOLEADORES_HISTORICOS[2]?.nombre}</h3>
+                  <div className="mt-3 px-4 py-1.5 rounded-full bg-slate-800 text-amber-400 text-xs font-black border border-amber-900/50 inline-block">
+                    ⚽ {GOLEADORES_HISTORICOS[2]?.goles} Goles
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TABLA COMPLETA DE GOLEADORES */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+              <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-wider">
+                  Mostrando {goleadoresHistoricosFiltrados.length} Artilleros Registrados
+                </span>
+                <span className="text-[11px] text-amber-400 font-bold bg-amber-950/40 px-3 py-1 rounded-full border border-amber-900/40">
+                  Multiedición Acumulada
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs sm:text-sm">
+                  <thead className="bg-slate-950 text-slate-400 font-black uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="py-4 px-4 w-16 text-center">Pos</th>
+                      <th className="py-4 px-4">Jugador</th>
+                      <th className="py-4 px-4 text-center">Goles Totales</th>
+                      <th className="py-4 px-4 text-right">Rango / Categoría</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-medium">
+                    {goleadoresHistoricosFiltrados.length > 0 ? (
+                      goleadoresHistoricosFiltrados.map((g, idx) => {
+                        const realIndex = GOLEADORES_HISTORICOS.findIndex(item => item.nombre === g.nombre && item.goles === g.goles);
+                        const pos = realIndex >= 0 ? realIndex + 1 : idx + 1;
+
+                        const isTop1 = pos === 1;
+                        const isTop2 = pos === 2;
+                        const isTop3 = pos === 3;
+
+                        return (
+                          <tr key={`${g.nombre}-${idx}`} className={`hover:bg-slate-800/40 transition-colors ${
+                            isTop1 ? 'bg-amber-950/20 font-bold' : isTop2 ? 'bg-slate-800/20' : isTop3 ? 'bg-amber-900/10' : ''
+                          }`}>
+                            <td className="py-3.5 px-4 text-center">
+                              {isTop1 ? (
+                                <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500 text-slate-950 font-black text-xs shadow-md">
+                                  1
+                                </span>
+                              ) : isTop2 ? (
+                                <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-300 text-slate-950 font-black text-xs shadow-md">
+                                  2
+                                </span>
+                              ) : isTop3 ? (
+                                <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-700 text-white font-black text-xs shadow-md">
+                                  3
+                                </span>
+                              ) : (
+                                <span className="font-black text-slate-500">#{pos}</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 font-black text-white flex items-center gap-2">
+                              <span className={isTop1 ? 'text-amber-400' : 'text-slate-200'}>{g.nombre}</span>
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black ${
+                                isTop1
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : g.goles >= 10
+                                  ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                  : g.goles >= 5
+                                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                                  : 'bg-slate-800 text-slate-300 border border-slate-700'
+                              }`}>
+                                ⚽ {g.goles} {g.goles === 1 ? 'gol' : 'goles'}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <span className="text-[11px] font-bold text-slate-400">
+                                {g.goles >= 20 ? '🔥 Super Artillero' : g.goles >= 10 ? '⭐ Goleador Destacado' : g.goles >= 5 ? '⚡ Goleador' : '⚽ Anotador'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="py-12 text-center text-slate-400 text-xs">
+                          <Trophy className="w-10 h-10 text-slate-700 mx-auto mb-3" />
+                          <p className="font-bold text-white uppercase mb-1">Sin resultados para la búsqueda</p>
+                          <p className="text-slate-500">No se encontró ningún jugador con ese nombre en la tabla histórica.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        )}
 
         {/* 🎲 SECCIÓN: SORTEO EN VIVO EN TIEMPO REAL */}
         {tabActiva === 'sorteo' && (

@@ -30,16 +30,26 @@ export default function AdminPanel() {
   // === FORMULARIO CREAR / EDITAR EDICIÓN ===
   const [mostrarFormEdicion, setMostrarFormEdicion] = useState(false);
   const [idEdicionEditando, setIdEdicionEditando] = useState<string | null>(null);
-  const [numEd, setNumEd] = useState<number>(7);
-  const [nomEd, setNomEd] = useState<string>('VII Edición');
-  const [fSorteo, setFSorteo] = useState<string>('Viernes 31 de Julio (8:30 PM)');
-  const [fSabado, setFSabado] = useState<string>('Sábado 1 de Agosto');
-  const [fDomingo, setFDomingo] = useState<string>('Domingo 2 de Agosto');
-  const [ubicCancha, setUbicCancha] = useState<string>('Cancha Villa Busch');
-  const [costoInsc, setCostoInsc] = useState<number>(3);
-  const [reglasTexto, setReglasTexto] = useState<string>('Compromiso total\n1 min fuera por falta fuerte\nRespeto al árbitro');
-  const [premio1, setPremio1] = useState<string>('1 CocaChampions 3L + Medallas + 1 Bebida 500ml p/jugador');
-  const [premio2, setPremio2] = useState<string>('Medallas de Plata + Bebidas p/jugador');
+  const [numEd, setNumEd] = useState<number>(8);
+  const [nomEd, setNomEd] = useState<string>('COCACHAMPIONS OCTAVA EDICIÓN');
+  const [fSorteo, setFSorteo] = useState<string>('Viernes 18 de Septiembre (08:30 PM)');
+  const [fSabado, setFSabado] = useState<string>('Sábado 19 de Septiembre (02:30 PM)');
+  const [fDomingo, setFDomingo] = useState<string>('Domingo 20 de Septiembre (08:30 AM)');
+  const [ubicCancha, setUbicCancha] = useState<string>('Cancha de Villa Busch');
+  const [costoInsc, setCostoInsc] = useState<number>(4);
+  const [reglasTexto, setReglasTexto] = useState<string>(
+    'Inscripción: 4 Bs por persona (pago QR). Límite: Viernes 18 Sept 07:00 PM\n' +
+    'Contacto WhatsApp inscripción: +591 63787755\n' +
+    'Modalidad: Equipos 100% aleatorios (máximo 6 jugadores por equipo) sin preferencias\n' +
+    'Sorteo: Viernes 18 Sept 08:30 PM en vivo por TikTok @SALE FULBO (para el sábado/ambos días)\n' +
+    'Sorteo del Domingo: Sábado 19 Sept 08:30 PM\n' +
+    'Repechaje/Reinscripción: Los eliminados del sábado podrán reinscribirse para el domingo\n' +
+    'Arbitraje 100% gratuito (sin costo adicional)\n' +
+    'Indumentaria: Ponchillos provistos por la organización\n' +
+    'Transmisión en vivo por TikTok @SALE FULBO y resultados en tiempo real por la web COCACHAMPIONS'
+  );
+  const [premio1, setPremio1] = useState<string>('1 Coca-Cola de 3 Litros, medallas para cada ganador y certificado oficial de campeón');
+  const [premio2, setPremio2] = useState<string>('1 Coca-Cola de 300 ml para cada jugador');
 
   // === FORMULARIO REGISTRO JUGADOR / EQUIPO ===
   const [nuevoNombreJugador, setNuevoNombreJugador] = useState('');
