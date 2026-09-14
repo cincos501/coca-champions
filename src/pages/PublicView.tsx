@@ -57,7 +57,37 @@ export default function PublicView() {
   // Ref para hacer scroll suave al cambiar pestañas
   const seccionContenidoRef = useRef<HTMLDivElement>(null);
 
-  // Estado para el carrusel de fotos
+  // Carrusel Hero Banner Principal (Afiche Octava Edición vs QR de Pago)
+  const [slideHeroIndex, setSlideHeroIndex] = useState(0);
+
+  const heroSlides = useMemo(() => [
+    {
+      id: 'afiche',
+      label: 'Poster VIII Edición',
+      src: '/banner-viii.jpeg',
+      fallback: '/banner-vii.jpeg',
+      alt: 'Afiche Oficial VIII Edición CocaChampions',
+      tag: '🏆 VIII EDICIÓN'
+    },
+    {
+      id: 'qr',
+      label: 'QR de Pago (4 Bs)',
+      src: '/Qrdepago.jpeg',
+      fallback: '/logo-medallas.jpeg',
+      alt: 'Código QR de Pago para la Inscripción CocaChampions',
+      tag: '📲 PAGO QR (4 BS)'
+    }
+  ], []);
+
+  // Auto-play para alternar cada 6 segundos entre el Afiche y el QR de Pago
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSlideHeroIndex(prev => (prev + 1) % heroSlides.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [heroSlides.length]);
+
+  // Estado para el carrusel de fotos secundario
   const [indiceFoto, setIndiceFoto] = useState(0);
 
   // Imágenes Oficiales CocaChampions (usando las imágenes de /public)
@@ -261,22 +291,83 @@ service cloud.firestore {
               Sigue el sorteo en tiempo real, consulta la lista de inscritos, el fixture y las reglas del torneo.
             </p>
 
-            {/* BANNER REPRODUCTOR O IMAGEN OFICIAL VIII EDICIÓN */}
-            <div className="w-full max-w-4xl rounded-3xl overflow-hidden border border-slate-800 shadow-2xl my-4 bg-slate-900 flex justify-center items-center relative group">
-              <img 
-                src="/banner-viii.jpeg" 
-                alt="Afiche Oficial VIII Edición CocaChampions" 
-                className="w-full h-auto max-h-[750px] object-contain rounded-3xl transition-all duration-300 group-hover:scale-[1.01]"
-                onError={(e) => {
-                  // Fallback a banner-vii.jpeg en caso de que aún no exista o tenga otra extensión
-                  const target = e.target as HTMLImageElement;
-                  if (!target.dataset.triedFallback) {
-                    target.dataset.triedFallback = 'true';
-                    target.src = '/banner-vii.jpeg';
-                  }
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent pointer-events-none rounded-3xl" />
+            {/* CARRUSEL INTERACTIVO HERO (POSTER EDICIÓN + QR DE PAGO) */}
+            <div className="w-full max-w-4xl rounded-3xl overflow-hidden border border-slate-800 shadow-2xl my-4 bg-slate-900 flex flex-col justify-center items-center relative group">
+              
+              {/* SLIDE DE PESTAÑAS RÁPIDAS SUPERIORES */}
+              <div className="w-full bg-slate-950/80 backdrop-blur border-b border-slate-800 p-2.5 flex flex-wrap items-center justify-between gap-2 px-4 z-20">
+                <span className="text-[11px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {heroSlides[slideHeroIndex].tag}
+                </span>
+
+                <div className="flex items-center gap-1.5">
+                  {heroSlides.map((slide, idx) => (
+                    <button
+                      key={slide.id}
+                      type="button"
+                      onClick={() => setSlideHeroIndex(idx)}
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase transition-all cursor-pointer ${
+                        slideHeroIndex === idx
+                          ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                          : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                      }`}
+                    >
+                      {slide.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* CONTENEDOR IMAGEN SLIDE */}
+              <div className="w-full flex justify-center items-center relative min-h-[350px] p-2 bg-slate-950/40">
+                <img 
+                  key={heroSlides[slideHeroIndex].src}
+                  src={heroSlides[slideHeroIndex].src} 
+                  alt={heroSlides[slideHeroIndex].alt} 
+                  className="w-full h-auto max-h-[750px] object-contain rounded-2xl transition-all duration-500 group-hover:scale-[1.005]"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (!target.dataset.triedFallback) {
+                      target.dataset.triedFallback = 'true';
+                      target.src = heroSlides[slideHeroIndex].fallback;
+                    }
+                  }}
+                />
+
+                {/* BOTONES ANTERIOR / SIGUIENTE */}
+                <button
+                  type="button"
+                  onClick={() => setSlideHeroIndex((prev) => (prev - 1 + heroSlides.length) % heroSlides.length)}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-950/80 text-white border border-slate-800 hover:bg-red-600 transition-all cursor-pointer shadow-lg opacity-80 group-hover:opacity-100"
+                  title="Anterior"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSlideHeroIndex((prev) => (prev + 1) % heroSlides.length)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-slate-950/80 text-white border border-slate-800 hover:bg-red-600 transition-all cursor-pointer shadow-lg opacity-80 group-hover:opacity-100"
+                  title="Siguiente"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* INDICADORES DE PUNTOS EN LA PARTE INFERIOR */}
+              <div className="w-full py-2.5 bg-slate-950/90 border-t border-slate-800/80 flex items-center justify-center gap-2">
+                {heroSlides.map((_, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setSlideHeroIndex(idx)}
+                    className={`h-2.5 rounded-full transition-all cursor-pointer ${
+                      slideHeroIndex === idx ? 'bg-red-500 w-7' : 'bg-slate-700 hover:bg-slate-500 w-2.5'
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
 
             {/* BARRA DE DATOS CLAVE DINÁMICOS */}
@@ -299,10 +390,17 @@ service cloud.firestore {
                 <span className="text-xs font-black text-white mt-0.5 truncate max-w-[150px]">{edicionActiva.ubicacion || 'Cancha Principal'}</span>
               </div>
 
-              <div className="bg-slate-900/80 backdrop-blur border border-slate-800 p-4 rounded-2xl flex flex-col items-center justify-center">
-                <DollarSign className="w-5 h-5 text-blue-500 mb-1" />
+              <div 
+                onClick={() => setSlideHeroIndex(1)}
+                className="bg-slate-900/80 backdrop-blur border border-slate-800 p-4 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-red-500/50 transition-all group"
+                title="Haz clic para ver el QR de pago"
+              >
+                <DollarSign className="w-5 h-5 text-blue-500 mb-1 group-hover:scale-110 transition-transform" />
                 <span className="text-[10px] uppercase font-bold text-slate-400">Inscripción</span>
-                <span className="text-xs font-black text-white mt-0.5">{edicionActiva.costo_inscripcion || 0} Bs</span>
+                <span className="text-xs font-black text-white mt-0.5 flex flex-wrap items-center justify-center gap-1">
+                  {edicionActiva.costo_inscripcion || 4} Bs 
+                  <span className="text-[10px] bg-red-600 hover:bg-red-500 text-white px-1.5 py-0.5 rounded-md font-black shadow-sm">Ver QR 📲</span>
+                </span>
               </div>
             </div>
 
