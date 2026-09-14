@@ -63,9 +63,9 @@ export default function PublicView() {
   // Imágenes Oficiales CocaChampions (usando las imágenes de /public)
   const fotosGaleria = [
     {
-      url: '/banner-vii.jpeg',
-      titulo: 'Banner Oficial VII Edición CocaChampions',
-      desc: 'El torneo de fútbol de mayor nivel'
+      url: '/banner-viii.jpeg',
+      titulo: 'Banner Oficial VIII Edición CocaChampions',
+      desc: 'Afiche y detalles oficiales de la Octava Edición'
     },
     {
       url: '/logo-medallas.jpeg',
@@ -261,14 +261,22 @@ service cloud.firestore {
               Sigue el sorteo en tiempo real, consulta la lista de inscritos, el fixture y las reglas del torneo.
             </p>
 
-            {/* BANNER REPRODUCTOR O IMAGEN */}
-            <div className="w-full max-w-4xl rounded-3xl overflow-hidden border border-slate-800 shadow-2xl my-4 aspect-[21/9] relative">
+            {/* BANNER REPRODUCTOR O IMAGEN OFICIAL VIII EDICIÓN */}
+            <div className="w-full max-w-4xl rounded-3xl overflow-hidden border border-slate-800 shadow-2xl my-4 bg-slate-900 flex justify-center items-center relative group">
               <img 
-                src="/banner-vii.jpeg" 
-                alt="Banner VII Edición CocaChampions" 
-                className="w-full h-full object-cover"
+                src="/banner-viii.jpeg" 
+                alt="Afiche Oficial VIII Edición CocaChampions" 
+                className="w-full h-auto max-h-[750px] object-contain rounded-3xl transition-all duration-300 group-hover:scale-[1.01]"
+                onError={(e) => {
+                  // Fallback a banner-vii.jpeg en caso de que aún no exista o tenga otra extensión
+                  const target = e.target as HTMLImageElement;
+                  if (!target.dataset.triedFallback) {
+                    target.dataset.triedFallback = 'true';
+                    target.src = '/banner-vii.jpeg';
+                  }
+                }}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-60" />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent pointer-events-none rounded-3xl" />
             </div>
 
             {/* BARRA DE DATOS CLAVE DINÁMICOS */}
